@@ -15,6 +15,7 @@ import os from 'os';
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { createInterface } from 'readline';
+import fs from 'fs/promises';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, '..');
@@ -354,6 +355,108 @@ function handleChatConnection(ws) {
 
       } else if (data.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
+
+      // ============================================
+      // SKILL MANAGEMENT
+      // ============================================
+      } else if (data.type === 'list-skills') {
+        try {
+          const skillsDir = path.join(PROJECT_PATH, '.claude', 'skills');
+          const skills = [];
+
+          try {
+            const files = await fs.readdir(skillsDir);
+            for (const file of files) {
+              if (file.endsWith('.md')) {
+                const skillPath = path.join(skillsDir, file);
+                const content = await fs.readFile(skillPath, 'utf-8');
+                skills.push({
+                  name: file.replace('.md', ''),
+                  path: skillPath,
+                  content: content.substring(0, 200) + (content.length > 200 ? '...' : '')
+                });
+              }
+            }
+          } catch (e) {
+            // Skills directory doesn't exist
+          }
+
+          ws.send(JSON.stringify({
+            type: 'skills-list',
+            skills
+          }));
+        } catch (error) {
+          console.error('[ERROR] List skills:', error.message);
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'Failed to list skills'
+          }));
+        }
+
+      } else if (data.type === 'create-skill') {
+        try {
+          const { name, content } = data;
+          const skillsDir = path.join(PROJECT_PATH, '.claude', 'skills');
+
+          // Ensure directory exists
+          await fs.mkdir(skillsDir, { recursive: true });
+
+          const skillPath = path.join(skillsDir, `${name}.md`);
+          await fs.writeFile(skillPath, content, 'utf-8');
+
+          console.log('[INFO] Skill created:', name);
+
+          ws.send(JSON.stringify({
+            type: 'skill-created',
+            skill: { name, path: skillPath, content: content.substring(0, 200) }
+          }));
+        } catch (error) {
+          console.error('[ERROR] Create skill:', error.message);
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'Failed to create skill'
+          }));
+        }
+
+      } else if (data.type === 'delete-skill') {
+        try {
+          const { name } = data;
+          const skillPath = path.join(PROJECT_PATH, '.claude', 'skills', `${name}.md`);
+
+          await fs.unlink(skillPath);
+          console.log('[INFO] Skill deleted:', name);
+
+          ws.send(JSON.stringify({
+            type: 'skill-deleted',
+            name
+          }));
+        } catch (error) {
+          console.error('[ERROR] Delete skill:', error.message);
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'Failed to delete skill'
+          }));
+        }
+
+      } else if (data.type === 'get-skill') {
+        try {
+          const { name } = data;
+          const skillPath = path.join(PROJECT_PATH, '.claude', 'skills', `${name}.md`);
+
+          const content = await fs.readFile(skillPath, 'utf-8');
+
+          ws.send(JSON.stringify({
+            type: 'skill-content',
+            name,
+            content
+          }));
+        } catch (error) {
+          console.error('[ERROR] Get skill:', error.message);
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'Failed to get skill'
+          }));
+        }
       }
 
     } catch (error) {

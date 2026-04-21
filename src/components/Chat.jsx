@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
-import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw } from 'lucide-react';
+import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings } from 'lucide-react';
+import SkillManager from './SkillManager';
+import CommandPalette from './CommandPalette';
 
 function Chat() {
   const { isConnected, sendMessage, latestMessage } = useWebSocket();
@@ -12,6 +14,8 @@ function Chat() {
   const [sessionId, setSessionId] = useState(null);
   const [claudeReady, setClaudeReady] = useState(false);
   const [isComposing, setIsComposing] = useState(false); // Input method composition state
+  const [showSkillManager, setShowSkillManager] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -132,6 +136,84 @@ function Chat() {
     } else if (voice.toggleListening) {
       voice.toggleListening();
     }
+  };
+
+  // Handle command palette selection
+  const handleCommandSelect = (command) => {
+    setInputText('');
+    setShowCommandPalette(false);
+
+    switch (command.action) {
+      case 'open-skill-manager':
+        setShowSkillManager(true);
+        break;
+      case 'new-session':
+        startNewSession();
+        break;
+      case 'clear-messages':
+        setMessages([]);
+        break;
+      case 'export-chat':
+        exportChat();
+        break;
+      case 'show-help':
+        showHelp();
+        break;
+      case 'terminal-mode':
+        sendToClaude('I want to run terminal/shell commands. Help me execute commands in this project.');
+        break;
+      default:
+        console.log('Unknown command:', command.action);
+    }
+  };
+
+  // Handle input change - show command palette on '/'
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setInputText(value);
+
+    if (value.startsWith('/')) {
+      setShowCommandPalette(true);
+    } else {
+      setShowCommandPalette(false);
+    }
+  };
+
+  // Export chat as markdown
+  const exportChat = () => {
+    const content = messages.map(m =>
+      m.role === 'user' ? `## User\n${m.content}` : `## Claude\n${m.content}`
+    ).join('\n\n---\n\n');
+
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `claude-chat-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Show help message
+  const showHelp = () => {
+    const helpContent = `**Available Commands:**
+
+- \`/skill\` - Open Skill Manager (import/create skills)
+- \`/new\` - Start new session
+- \`/clear\` - Clear messages
+- \`/export\` - Export chat as markdown
+- \`/terminal\` - Terminal mode
+- \`/help\` - Show this help
+
+**Voice Features:**
+- Click mic button to start voice input
+- Response will be spoken automatically
+
+**Tips:**
+- Messages go to the same Claude instance (context preserved)
+- Use Shift+Enter for new lines`;
+
+    setMessages(prev => [...prev, { role: 'assistant', content: helpContent }]);
   };
 
   // Format message content (basic markdown-like formatting)
@@ -278,6 +360,16 @@ function Chat() {
           >
             <RefreshCw className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
           </button>
+
+          {/* Skill Manager button */}
+          <button
+            onClick={() => setShowSkillManager(true)}
+            disabled={!isConnected}
+            className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 disabled:opacity-50 group"
+            title="Open Skill Manager"
+          >
+            <FileText className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+          </button>
         </div>
       </header>
 
@@ -329,14 +421,21 @@ function Chat() {
           <form onSubmit={handleSubmit} className="flex items-end gap-4">
             {/* Text Input with Voice Button inside */}
             <div className="flex-1 relative flex items-end">
+              {/* Command Palette */}
+              <CommandPalette
+                inputText={inputText}
+                onSelectCommand={handleCommandSelect}
+                visible={showCommandPalette}
+              />
+
               <textarea
                 ref={inputRef}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
-                placeholder="Message Claude..."
+                placeholder="Message Claude... or type / for commands"
                 disabled={isProcessing}
                 rows={1}
                 className="w-full px-6 py-4 pr-14 bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:bg-white/15 resize-none transition-all duration-200 disabled:opacity-50 text-[15px]"
@@ -396,10 +495,16 @@ function Chat() {
 
           {/* Hint */}
           <p className="text-center text-xs text-white/30 mt-4">
-            Press Enter to send • Shift+Enter for new line • Click mic for voice input
+            Press Enter to send • Shift+Enter for new line • Type / for commands • Click mic for voice
           </p>
         </div>
       </footer>
+
+      {/* Skill Manager Modal */}
+      <SkillManager
+        isOpen={showSkillManager}
+        onClose={() => setShowSkillManager(false)}
+      />
     </div>
   );
 }
