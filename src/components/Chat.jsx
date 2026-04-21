@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
 import VoiceButton from './VoiceButton';
-import { Send, Bot, User, Loader2, Terminal } from 'lucide-react';
+import { Send, Bot, User, Loader2, Terminal, Wrench, AlertCircle, CheckCircle } from 'lucide-react';
 
 function Chat() {
   const { isConnected, sendMessage, latestMessage } = useWebSocket();
@@ -10,9 +10,10 @@ function Chat() {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
   const [cliOutput, setCliOutput] = useState('');
   const [lastStatus, setLastStatus] = useState('');
+  const [claudeReady, setClaudeReady] = useState(false);
+  const [toolUse, setToolUse] = useState(null);
 
   const messagesEndRef = useRef(null);
 
@@ -35,12 +36,14 @@ function Chat() {
   useEffect(() => {
     if (!latestMessage) return;
 
-    const { type, sessionId: newSessionId, data, error, message, exitCode } = latestMessage;
+    const { type, data, error, message, exitCode, claudeReady: ready } = latestMessage;
 
-    if (type === 'session-id' && newSessionId) {
-      setSessionId(newSessionId);
-      setIsProcessing(true);
-      setCliOutput('');
+    // Connection status
+    if (type === 'connected') {
+      setClaudeReady(ready || false);
+      if (!ready) {
+        setCliOutput('[System] Claude instance not running, will start on first message\n');
+      }
     }
 
     if (type === 'status') {
@@ -51,8 +54,10 @@ function Chat() {
       }
     }
 
+    // Claude response
     if (type === 'claude-response' && data) {
       setIsProcessing(false);
+      setToolUse(null); // Clear tool use indicator
       const content = data.content || '';
       if (content.trim()) {
         setMessages(prev => {
@@ -69,15 +74,23 @@ function Chat() {
       }
     }
 
-    if (type === 'complete') {
+    // Tool use indicator
+    if (type === 'tool-use' && data) {
+      setToolUse(data);
+      setCliOutput(prev => prev + `[Tool] ${data.tool}\n`);
+    }
+
+    // Raw Claude output (for debugging)
+    if (type === 'claude-output' && data) {
+      const output = JSON.stringify(data);
+      console.log('[Claude output]', output.substring(0, 100));
+    }
+
+    // Claude disconnected
+    if (type === 'claude-disconnected') {
+      setClaudeReady(false);
       setIsProcessing(false);
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg?.incomplete) {
-          return [...prev.slice(0, -1), { ...lastMsg, incomplete: false }];
-        }
-        return prev;
-      });
+      setCliOutput(prev => prev + `[System] Claude instance stopped (exit: ${exitCode})\n`);
     }
 
     if (type === 'error') {
@@ -87,12 +100,7 @@ function Chat() {
       setMessages(prev => [...prev, { type: 'error', content: errorMsg }]);
     }
 
-    if (type === 'aborted') {
-      setIsProcessing(false);
-      setCliOutput(prev => prev + '[Aborted]\n');
-    }
-
-  }, [latestMessage, voice]);
+  }, [latestMessage, voice, lastStatus]);
 
   const sendToClaude = useCallback((text) => {
     if (!text.trim() || !isConnected || isProcessing) return;
@@ -101,6 +109,7 @@ function Chat() {
     setInputText('');
     setIsProcessing(true);
     setCliOutput('');
+    setToolUse(null);
 
     if (voice.stopSpeaking) {
       voice.stopSpeaking();
@@ -109,10 +118,21 @@ function Chat() {
     sendMessage({
       type: 'claude-command',
       command: text.trim(),
-      options: { cwd: '/', sessionId }
+      options: { cwd: '/Users/lg/project/cloudCliVoice' }
     });
 
-  }, [isConnected, isProcessing, sessionId, sendMessage, voice]);
+  }, [isConnected, isProcessing, sendMessage, voice]);
+
+  const startClaude = useCallback(() => {
+    sendMessage({
+      type: 'start-claude',
+      projectPath: '/Users/lg/project/cloudCliVoice'
+    });
+  }, [sendMessage]);
+
+  const stopClaude = useCallback(() => {
+    sendMessage({ type: 'stop-claude' });
+  }, [sendMessage]);
 
   const handleSubmit = (e) => {
     e?.preventDefault();
@@ -169,11 +189,23 @@ function Chat() {
     <div className="flex flex-col h-[calc(100vh-120px)] bg-gray-900/50 rounded-xl border border-gray-700">
       {/* Status Bar */}
       <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-700 bg-gray-800/50 rounded-t-xl">
+        {/* WebSocket connection */}
         <div className={`flex items-center gap-1.5 text-xs ${isConnected ? 'text-green-400' : 'text-gray-500'}`}>
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-500'}`} />
-          {isConnected ? 'Connected' : 'Disconnected'}
+          {isConnected ? 'WebSocket' : 'Disconnected'}
         </div>
 
+        {/* Claude status */}
+        <div className={`flex items-center gap-1.5 text-xs ${claudeReady ? 'text-green-400' : 'text-yellow-400'}`}>
+          {claudeReady ? (
+            <CheckCircle className="w-3 h-3" />
+          ) : (
+            <AlertCircle className="w-3 h-3" />
+          )}
+          {claudeReady ? 'Claude Ready' : 'Claude Idle'}
+        </div>
+
+        {/* Processing indicator */}
         {isProcessing && (
           <div className="flex items-center gap-1.5 text-xs text-indigo-400">
             <Loader2 className="w-3 h-3 animate-spin" />
@@ -181,6 +213,15 @@ function Chat() {
           </div>
         )}
 
+        {/* Tool use indicator */}
+        {toolUse && (
+          <div className="flex items-center gap-1.5 text-xs text-orange-400">
+            <Wrench className="w-3 h-3" />
+            {toolUse.tool}
+          </div>
+        )}
+
+        {/* Voice indicators */}
         {voice.isListening && (
           <div className="flex items-center gap-1.5 text-xs text-red-400">
             🎤 Listening...
@@ -192,6 +233,28 @@ function Chat() {
             🔊 Speaking...
           </div>
         )}
+
+        {/* Claude controls */}
+        <div className="flex gap-2 ml-auto">
+          {!claudeReady && (
+            <button
+              onClick={startClaude}
+              disabled={!isConnected}
+              className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 disabled:opacity-50"
+            >
+              Start Claude
+            </button>
+          )}
+          {claudeReady && (
+            <button
+              onClick={stopClaude}
+              disabled={!isConnected}
+              className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 disabled:opacity-50"
+            >
+              Stop Claude
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -203,7 +266,7 @@ function Chat() {
             </div>
             <p className="text-gray-400 mb-2">Start a conversation with Claude Code</p>
             <p className="text-xs text-gray-500">
-              Type a message or click the microphone button to speak
+              Stream-json mode - persistent session with memory
             </p>
           </div>
         )}
@@ -215,7 +278,7 @@ function Chat() {
           <div className="bg-gray-900/80 border border-gray-700 rounded-lg p-2 mt-4">
             <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
               <Terminal className="w-3 h-3" />
-              CLI Output
+              System Output
             </div>
             <pre className="text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48">
               {cliOutput.slice(-2000)}
