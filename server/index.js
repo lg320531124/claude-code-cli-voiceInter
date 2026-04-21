@@ -110,11 +110,14 @@ function handleChatConnection(ws) {
         let args;
         const sessionFile = path.join(os.homedir(), '.claude', 'projects', projectPath.replace(/\//g, '-'), 'sessions', currentSessionId + '.json');
 
-        // Simple approach: use -p mode which we know works
-        // Session persistence is handled by Claude's internal mechanism
+        // Simple approach: use -p mode with --bare for faster startup
+        // --bare skips hooks, LSP, plugins - much faster
+        // -c continues most recent session in the directory
         args = [
           '-p',
           '--dangerously-skip-permissions',
+          '--bare',  // Skip hooks, LSP, plugins for faster response
+          '-c',      // Continue most recent session
           command
         ];
 
