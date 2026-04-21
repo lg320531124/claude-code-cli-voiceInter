@@ -1,20 +1,21 @@
-# CloudCLI Voice
+# Claude Code CLI VoiceInter
 
-A simplified web UI for Claude Code CLI with voice interaction support.
+A web UI for Claude Code CLI with voice interaction support.
 
 ## Features
 
 - 🎤 Voice input using Web Speech API (Speech Recognition)
 - 🔊 Voice output using Speech Synthesis
 - 💬 Real-time chat interface with Claude
-- 🔄 WebSocket-based streaming responses
+- 🔄 Persistent WebSocket connection (same Claude instance)
 - 🇨🇳 Default Chinese language support (zh-CN)
+- 🍎 Apple-style glassmorphism UI
 
 ## Tech Stack
 
-- **Frontend**: React + Vite
+- **Frontend**: React + Vite + Tailwind CSS
 - **Backend**: Node.js + Express + WebSocket
-- **AI**: @anthropic-ai/claude-agent-sdk
+- **AI**: Claude Code CLI (stream-json mode)
 - **Voice**: Web Speech API (browser native)
 
 ## Quick Start
@@ -22,15 +23,15 @@ A simplified web UI for Claude Code CLI with voice interaction support.
 ### Prerequisites
 
 - Node.js 18+ installed
-- Anthropic API key or Claude subscription
+- Claude Code CLI installed globally
 - Chrome/Edge browser (for best voice support)
 
 ### Installation
 
 ```bash
 # Clone repository
-git clone https://github.com/forrestchang/cloudcli-voice.git
-cd cloudcli-voice
+git clone https://github.com/lg320531124/claude-code-cli-voiceInter.git
+cd claude-code-cli-voiceInter
 
 # Install dependencies
 npm install
@@ -49,32 +50,43 @@ npm run dev
 ## Architecture
 
 ```
-Frontend (React)          Backend (Node.js)
-    ↓                         ↓
-WebSocket Context  →  WebSocket Server
-    ↓                         ↓
-VoiceButton/Chat   →  Claude SDK
-    ↓                         ↓
-Web Speech API    ←  Streaming Response
+Frontend (React)                Backend (Node.js)
+    ↓                               ↓
+WebSocket Context    →    WebSocket Server
+    ↓                               ↓
+VoiceButton/Chat     →    Claude CLI (persistent)
+    ↓                               ↓
+Web Speech API       ←    stream-json output
 ```
+
+## Key Design
+
+### Persistent Connection
+- Claude instance starts when server launches
+- All messages go to same instance via stdin
+- Context preserved across messages
+- No new process spawn per message
+
+### stream-json Mode
+- Input: `{"type": "user", "message": {"role": "user", "content": "..."}}`
+- Output: JSON lines parsed incrementally
 
 ## Project Structure
 
 ```
-cloudcli-voice/
+claude-code-cli-voiceInter/
 ├── package.json
 ├── vite.config.js
 ├── server/
-│   ├── index.js          # Express + WebSocket server
-│   └── claude-sdk.js     # Claude SDK integration
+│   └── index.js          # Express + WebSocket + persistent Claude
 ├── src/
 │   ├── main.jsx
 │   ├── App.jsx
-│   ├── index.css
+│   ├── index.css         # Apple-style animations
 │   ├── contexts/
 │   │   └── WebSocketContext.jsx
 │   ├── components/
-│   │   ├── Chat.jsx
+│   │   ├── Chat.jsx      # Apple-style chat UI
 │   │   └── VoiceButton.jsx
 │   └── hooks/
 │   │   └── useVoiceRecognition.js
@@ -103,7 +115,3 @@ Voice features require browser support:
 ## License
 
 MIT
-
-## Credits
-
-Inspired by [CloudCLI (claudecodeui)](https://github.com/siteboon/claudecodeui)

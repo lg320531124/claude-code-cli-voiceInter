@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * CloudCLI Voice - Backend Server
+ * Claude Code CLI VoiceInter - Backend Server
  *
- * Bridges frontend to Claude Code CLI with persistent session support.
- * Uses -p mode with session IDs for session continuity.
+ * Persistent Claude CLI instance with stream-json mode.
+ * One instance stays running, all messages go to the same instance.
  */
 
 import express from 'express';
@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import os from 'os';
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
+import { createInterface } from 'readline';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, '..');
@@ -25,6 +26,9 @@ const HOST = process.env.HOST || 'localhost';
 // Claude CLI path
 const CLAUDE_PATH = process.env.CLAUDE_PATH ||
   '/Users/lg/.nvm/versions/node/v22.22.0/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe';
+
+// Project path for Claude session
+const PROJECT_PATH = '/Users/lg/project/cloudCliVoice';
 
 // Create Express app
 const app = express();
@@ -38,10 +42,10 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(APP_ROOT, 'dist')));
 }
 
-// WebSocket server with heartbeat
+// WebSocket server
 const wss = new WebSocketServer({ server });
 
-// Heartbeat interval to keep connections alive
+// Heartbeat
 const HEARTBEAT_INTERVAL = 30000;
 
 function heartbeat() {
@@ -64,24 +68,253 @@ const heartbeatCheck = setInterval(() => {
   });
 }, HEARTBEAT_INTERVAL);
 
-// Session management - use Claude's built-in session persistence
-const sessionIds = new Map(); // Map websocket to session UUID
+// ============================================
+// PERSISTENT CLAUDE INSTANCE
+// ============================================
+
+let claudeInstance = null;
+let messageBuffer = '';
+let isClaudeReady = false;
+let pendingCommand = null;
 
 /**
- * Handle chat WebSocket connections
+ * Start the persistent Claude instance
  */
+function startClaudeInstance() {
+  if (claudeInstance && !claudeInstance.killed) {
+    console.log('[INFO] Claude instance already running');
+    return;
+  }
+
+  console.log('[INFO] Starting persistent Claude instance...');
+  console.log('[INFO] Claude path:', CLAUDE_PATH);
+  console.log('[INFO] Project:', PROJECT_PATH);
+
+  // Use stream-json mode for persistent communication
+  claudeInstance = spawn(CLAUDE_PATH, [
+    '--print',
+    '--input-format', 'stream-json',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--dangerously-skip-permissions'
+  ], {
+    cwd: PROJECT_PATH,
+    env: {
+      ...process.env,
+      HOME: process.env.HOME || '/Users/lg'
+    },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  // Create readline interface for parsing JSON lines
+  const stdoutRL = createInterface({
+    input: claudeInstance.stdout,
+    crlfDelay: Infinity
+  });
+
+  stdoutRL.on('line', (line) => {
+    if (!line.trim()) return;
+
+    console.log('[Claude] Output:', line.substring(0, 150));
+
+    try {
+      const msg = JSON.parse(line);
+      handleClaudeMessage(msg);
+    } catch (e) {
+      // Not valid JSON, might be partial output
+      console.log('[Claude raw]', line.substring(0, 100));
+      // Send as plain text to clients
+      broadcastToClients({
+        type: 'claude-output',
+        data: line
+      });
+    }
+  });
+
+  // Handle stderr
+  claudeInstance.stderr.on('data', (data) => {
+    const text = data.toString();
+    console.log('[Claude stderr]', text.substring(0, 150));
+  });
+
+  // Handle process exit
+  claudeInstance.on('close', (exitCode) => {
+    console.log('[Claude] Instance exited with code:', exitCode);
+    claudeInstance = null;
+    isClaudeReady = false;
+
+    broadcastToClients({
+      type: 'claude-disconnected',
+      exitCode
+    });
+
+    // Auto-restart after 2 seconds
+    setTimeout(() => {
+      console.log('[INFO] Auto-restarting Claude instance...');
+      startClaudeInstance();
+    }, 2000);
+  });
+
+  claudeInstance.on('error', (err) => {
+    console.error('[Claude] Error:', err.message);
+    broadcastToClients({
+      type: 'error',
+      error: err.message
+    });
+  });
+
+  // Consider ready after a short delay (hooks take a moment to run)
+  setTimeout(() => {
+    console.log('[INFO] Claude instance ready');
+    isClaudeReady = true;
+    broadcastToClients({
+      type: 'claude-ready',
+      ready: true
+    });
+
+    // Send pending command if there is one
+    if (pendingCommand) {
+      sendCommandToClaude(pendingCommand);
+      pendingCommand = null;
+    }
+  }, 3000);
+}
+
+/**
+ * Handle a parsed JSON message from Claude
+ */
+function handleClaudeMessage(msg) {
+  console.log('[Claude msg] type:', msg.type, 'subtype:', msg.subtype || '');
+
+  // Map message types to frontend format
+  if (msg.type === 'assistant') {
+    // Extract content from message
+    let content = '';
+    if (msg.message?.content) {
+      const textBlocks = msg.message.content.filter(c => c.type === 'text');
+      content = textBlocks.map(c => c.text).join('');
+      console.log('[Claude assistant] text blocks:', textBlocks.length, 'content length:', content.length);
+    } else if (msg.content) {
+      content = typeof msg.content === 'string' ? msg.content : '';
+    }
+
+    if (content.trim()) {
+      console.log('[Claude assistant] sending content:', content.substring(0, 100));
+      broadcastToClients({
+        type: 'claude-response',
+        data: {
+          type: 'assistant',
+          content: content.trim()
+        }
+      });
+
+      // Signal completion
+      broadcastToClients({
+        type: 'complete'
+      });
+    }
+  } else if (msg.type === 'result') {
+    // Final result
+    const content = msg.result || '';
+    console.log('[Claude result] content:', content.substring(0, 100));
+    if (content.trim()) {
+      broadcastToClients({
+        type: 'claude-response',
+        data: {
+          type: 'assistant',
+          content: content.trim()
+        }
+      });
+      broadcastToClients({
+        type: 'complete'
+      });
+    }
+  } else if (msg.type === 'error') {
+    broadcastToClients({
+      type: 'error',
+      error: msg.error || msg.message || 'Unknown error'
+    });
+  } else if (msg.type === 'system') {
+    // System messages (hooks, etc) - usually not shown to user
+    console.log('[Claude system]', msg.subtype || '');
+  } else if (msg.type === 'status') {
+    broadcastToClients({
+      type: 'status',
+      message: msg.status || ''
+    });
+  } else {
+    // Unknown type - send raw
+    broadcastToClients({
+      type: 'claude-output',
+      data: msg
+    });
+  }
+}
+
+/**
+ * Send a command to Claude via stdin
+ */
+function sendCommandToClaude(command) {
+  if (!claudeInstance || claudeInstance.killed) {
+    console.log('[WARN] Claude not running, starting...');
+    pendingCommand = command;
+    startClaudeInstance();
+    return;
+  }
+
+  // Wait if not ready yet
+  if (!isClaudeReady) {
+    console.log('[WARN] Claude not ready yet, queuing command...');
+    pendingCommand = command;
+    return;
+  }
+
+  // stream-json input format
+  const message = JSON.stringify({
+    type: 'user',
+    message: {
+      role: 'user',
+      content: command
+    }
+  }) + '\n';
+
+  console.log('[Sending to Claude]', message.substring(0, 80));
+
+  try {
+    claudeInstance.stdin.write(message);
+    pendingCommand = null;
+  } catch (e) {
+    console.error('[ERROR] Failed to write to stdin:', e.message);
+    broadcastToClients({
+      type: 'error',
+      error: 'Failed to send message to Claude'
+    });
+  }
+}
+
+/**
+ * Broadcast message to all connected WebSocket clients
+ */
+function broadcastToClients(message) {
+  const json = JSON.stringify(message);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(json);
+    }
+  });
+}
+
+// ============================================
+// WEBSOCKET HANDLER
+// ============================================
+
 function handleChatConnection(ws) {
   console.log('[INFO] Chat WebSocket connected');
-
-  // Generate a persistent session ID for this connection
-  const sessionId = randomUUID();
-  sessionIds.set(ws, sessionId);
 
   // Send connection status
   ws.send(JSON.stringify({
     type: 'connected',
-    sessionId: sessionId,
-    claudeReady: true
+    claudeReady: isClaudeReady
   }));
 
   ws.on('message', async (message) => {
@@ -90,110 +323,34 @@ function handleChatConnection(ws) {
       console.log('[DEBUG] Received:', data.type);
 
       if (data.type === 'claude-command') {
-        const { command, options } = data;
-        const projectPath = options?.cwd || '/Users/lg/project/cloudCliVoice';
-        const currentSessionId = sessionIds.get(ws) || sessionId;
+        const { command } = data;
 
         console.log('[INFO] Command:', command);
-        console.log('[INFO] Session:', currentSessionId);
 
-        // Notify client we're processing
-        ws.send(JSON.stringify({
+        // Notify all clients we're processing
+        broadcastToClients({
           type: 'status',
           message: 'Processing...'
-        }));
-
-        // Spawn Claude with session ID for continuity
-        // For first message, use -c (continue most recent) or just -p
-        // For subsequent messages, use --resume with session ID
-
-        let args;
-        const sessionFile = path.join(os.homedir(), '.claude', 'projects', projectPath.replace(/\//g, '-'), 'sessions', currentSessionId + '.json');
-
-        // Simple approach: use -p mode with --bare for faster startup
-        // --bare skips hooks, LSP, plugins - much faster
-        // -c continues most recent session in the directory
-        args = [
-          '-p',
-          '--dangerously-skip-permissions',
-          '--bare',  // Skip hooks, LSP, plugins for faster response
-          '-c',      // Continue most recent session
-          command
-        ];
-
-        console.log('[INFO] Spawning Claude with args:', args.join(' '));
-
-        const claudeProc = spawn(CLAUDE_PATH, args, {
-          cwd: projectPath,
-          env: {
-            ...process.env,
-            HOME: process.env.HOME || '/Users/lg'
-          },
-          stdio: ['ignore', 'pipe', 'pipe']
         });
 
-        let outputBuffer = '';
-
-        // Handle stdout
-        claudeProc.stdout.on('data', (data) => {
-          outputBuffer += data.toString();
-          console.log('[Claude stdout]', data.toString().substring(0, 100));
-        });
-
-        // Handle stderr
-        claudeProc.stderr.on('data', (data) => {
-          console.log('[Claude stderr]', data.toString().substring(0, 100));
-          ws.send(JSON.stringify({
-            type: 'claude-output',
-            data: data.toString()
-          }));
-        });
-
-        // Handle process exit
-        claudeProc.on('close', (exitCode) => {
-          console.log('[Claude] Exit:', exitCode);
-
-          if (outputBuffer.trim()) {
-            ws.send(JSON.stringify({
-              type: 'claude-response',
-              data: {
-                type: 'assistant',
-                content: outputBuffer.trim()
-              }
-            }));
-
-            // Trigger TTS
-            if (exitCode === 0) {
-              ws.send(JSON.stringify({
-                type: 'complete',
-                exitCode: exitCode
-              }));
-            }
-          } else if (exitCode !== 0) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              error: `Claude exited with code ${exitCode}`
-            }));
-          }
-        });
-
-        claudeProc.on('error', (err) => {
-          console.error('[Claude] Error:', err.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: err.message
-          }));
-        });
+        // Send command to persistent Claude instance
+        sendCommandToClaude(command);
 
       } else if (data.type === 'new-session') {
-        // Start a fresh session
-        const newSessionId = randomUUID();
-        sessionIds.set(ws, newSessionId);
+        // Kill current instance and start fresh
+        if (claudeInstance && !claudeInstance.killed) {
+          claudeInstance.kill();
+          claudeInstance = null;
+          isClaudeReady = false;
+          pendingCommand = null;
+        }
+
         ws.send(JSON.stringify({
-          type: 'session-reset',
-          sessionId: newSessionId
+          type: 'session-reset'
         }));
-        console.log('[INFO] New session:', newSessionId);
+
+        // Start new instance
+        setTimeout(() => startClaudeInstance(), 500);
 
       } else if (data.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
@@ -210,7 +367,6 @@ function handleChatConnection(ws) {
 
   ws.on('close', () => {
     console.log('[INFO] Chat client disconnected');
-    sessionIds.delete(ws);
   });
 
   ws.on('error', (error) => {
@@ -233,11 +389,15 @@ wss.on('connection', (ws, request) => {
   }
 });
 
-// API endpoints
+// ============================================
+// API ENDPOINTS
+// ============================================
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    claudeReady: isClaudeReady
   });
 });
 
@@ -272,27 +432,42 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Start server
+// ============================================
+// START SERVER
+// ============================================
+
 server.listen(PORT, HOST, () => {
-  console.log(`\n🚀 CloudCLI Voice Server running at http://${HOST}:${PORT}`);
+  console.log(`\n🚀 Claude Code CLI VoiceInter running at http://${HOST}:${PORT}`);
   console.log(`   WebSocket: ws://${HOST}:${PORT}/ws`);
   console.log(`   API: http://${HOST}:${PORT}/api`);
-  console.log(`\n   Using Claude Code CLI with session persistence`);
+  console.log(`\n   Persistent Claude instance (stream-json mode)`);
   console.log(`   Claude path: ${CLAUDE_PATH}`);
   console.log('\nPress Ctrl+C to stop\n');
+
+  // Start Claude instance immediately
+  startClaudeInstance();
 });
 
-// Graceful shutdown
+// ============================================
+// GRACEFUL SHUTDOWN
+// ============================================
+
 process.on('SIGINT', () => {
   console.log('\n[INFO] Shutting down...');
+
+  // Kill Claude instance
+  if (claudeInstance && !claudeInstance.killed) {
+    console.log('[INFO] Stopping Claude instance...');
+    claudeInstance.kill();
+  }
+
+  clearInterval(heartbeatCheck);
 
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.close();
     }
   });
-
-  clearInterval(heartbeatCheck);
 
   server.close(() => {
     console.log('[INFO] Server closed');

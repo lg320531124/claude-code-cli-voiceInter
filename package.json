@@ -1,5 +1,5 @@
 {
-  "name": "cloudcli-voice",
+  "name": "claude-code-cli-voiceInter",
   "version": "1.0.0",
   "description": "Claude Code CLI Web UI with Voice Interaction",
   "type": "module",
@@ -27,9 +27,9 @@
     "concurrently": "^8.2.2",
     "vite": "^5.0.0"
   },
-  "homepage": "https://github.com/forrestchang/cloudcli-voice",
+  "homepage": "https://github.com/lg320531124/claude-code-cli-voiceInter",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/forrestchang/cloudcli-voice.git"
+    "url": "git+https://github.com/lg320531124/claude-code-cli-voiceInter.git"
   }
 }

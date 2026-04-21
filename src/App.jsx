@@ -14,13 +14,13 @@ function App() {
                 <span className="text-primary-foreground font-bold text-sm">CV</span>
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-foreground">CloudCLI Voice</h1>
+                <h1 className="text-lg font-semibold text-foreground">Claude Code CLI VoiceInter</h1>
                 <p className="text-xs text-muted-foreground">Claude Code with Voice</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <a
-                href="https://github.com/lg320531124/cloudcli-voice"
+                href="https://github.com/lg320531124/claude-code-cli-voiceInter"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-smooth"
