@@ -76,6 +76,38 @@ function Chat() {
       setIsProcessing(false);
     }
 
+    // Handle CLI result
+    if (type === 'cli-result') {
+      setIsProcessing(false);
+      const { command, args, exitCode, output, error: cliError } = latestMessage;
+
+      let content = `**CLI Result** (exit code: ${exitCode})\n\n`;
+      content += `Command: \`claude ${command} ${args?.join(' ') || ''}\`\n\n`;
+
+      if (output) {
+        content += `**Output:**\n\`\`\`\n${output}\n\`\`\`\n`;
+      }
+
+      if (cliError) {
+        content += `\n**Error:**\n\`\`\`\n${cliError}\n\`\`\`\n`;
+      }
+
+      if (!output && !cliError) {
+        content += `_(No output)_`;
+      }
+
+      setMessages(prev => [...prev, { role: 'assistant', content }]);
+    }
+
+    if (type === 'cli-error') {
+      setIsProcessing(false);
+      const { command, error: cliError } = latestMessage;
+      setMessages(prev => [...prev, {
+        role: 'error',
+        content: `CLI Error (${command}): ${cliError}`
+      }]);
+    }
+
     if (type === 'error') {
       setIsProcessing(false);
       setMessages(prev => [...prev, { role: 'error', content: error || 'Unknown error' }]);
@@ -108,9 +140,141 @@ function Chat() {
     setMessages([]);
   }, [sendMessage]);
 
+  // All CLI commands list for matching
+  const allCommands = [
+    { name: '/new', action: 'new-session' },
+    { name: '/resume', action: 'cli-resume' },
+    { name: '/continue', action: 'cli-continue' },
+    { name: '/fork', action: 'cli-fork' },
+    { name: '/model', action: 'cli-model', hasInput: true },
+    { name: '/agent', action: 'cli-agent', hasInput: true },
+    { name: '/agents', action: 'cli-agents' },
+    { name: '/effort', action: 'cli-effort', hasInput: true },
+    { name: '/skill', action: 'open-skill-manager' },
+    { name: '/skills-disable', action: 'cli-disable-skills' },
+    { name: '/plugin', action: 'cli-plugin-list' },
+    { name: '/plugin-install', action: 'cli-plugin-install', hasInput: true },
+    { name: '/plugin-enable', action: 'cli-plugin-enable', hasInput: true },
+    { name: '/plugin-disable', action: 'cli-plugin-disable', hasInput: true },
+    { name: '/mcp', action: 'cli-mcp-list' },
+    { name: '/mcp-add', action: 'cli-mcp-add', hasInput: true },
+    { name: '/mcp-remove', action: 'cli-mcp-remove', hasInput: true },
+    { name: '/mcp-get', action: 'cli-mcp-get', hasInput: true },
+    { name: '/mcp-config', action: 'cli-mcp-config', hasInput: true },
+    { name: '/worktree', action: 'cli-worktree', hasInput: true },
+    { name: '/tmux', action: 'cli-tmux' },
+    { name: '/auth', action: 'cli-auth' },
+    { name: '/setup-token', action: 'cli-setup-token' },
+    { name: '/doctor', action: 'cli-doctor' },
+    { name: '/update', action: 'cli-update' },
+    { name: '/tools', action: 'cli-tools', hasInput: true },
+    { name: '/allow-tools', action: 'cli-allow-tools', hasInput: true },
+    { name: '/disallow-tools', action: 'cli-disallow-tools', hasInput: true },
+    { name: '/permission', action: 'cli-permission', hasInput: true },
+    { name: '/clear', action: 'clear-messages' },
+    { name: '/export', action: 'export-chat' },
+    { name: '/terminal', action: 'terminal-mode' },
+    { name: '/bare', action: 'cli-bare' },
+    { name: '/verbose', action: 'cli-verbose' },
+    { name: '/debug', action: 'cli-debug' },
+    { name: '/help', action: 'show-help' },
+    { name: '/cli-help', action: 'cli-help' },
+  ];
+
   const handleSubmit = (e) => {
     e?.preventDefault();
+
+    const text = inputText.trim();
+
+    // Check if it's a CLI command
+    if (text.startsWith('/')) {
+      const matchingCommand = allCommands.find(cmd =>
+        text === cmd.name || text.startsWith(cmd.name + ' ')
+      );
+
+      if (matchingCommand) {
+        // Extract argument if present
+        const argPart = text.startsWith(matchingCommand.name + ' ')
+          ? text.slice(matchingCommand.name.length + 1)
+          : null;
+
+        // Create command object with potential argument
+        const command = { ...matchingCommand };
+
+        if (argPart && matchingCommand.hasInput) {
+          // Execute CLI command with argument
+          executeCliCommandWithArg(matchingCommand, argPart);
+        } else {
+          // Execute via command select
+          handleCommandSelect(command);
+        }
+
+        setInputText('');
+        setShowCommandPalette(false);
+        return;
+      }
+    }
+
+    // Regular message to Claude
     sendToClaude(inputText);
+  };
+
+  // Execute CLI command with argument
+  const executeCliCommandWithArg = (command, arg) => {
+    setIsProcessing(true);
+    setMessages(prev => [...prev, {
+      role: 'user',
+      content: `${command.name} ${arg}`
+    }]);
+
+    // Build CLI args based on command
+    let cliCommand = '';
+    let cliArgs = [];
+
+    switch (command.action) {
+      case 'cli-model':
+        cliCommand = '--model';
+        cliArgs = [arg];
+        break;
+      case 'cli-agent':
+        cliCommand = '--agent';
+        cliArgs = [arg];
+        break;
+      case 'cli-effort':
+        cliCommand = '--effort';
+        cliArgs = [arg];
+        break;
+      case 'cli-plugin-install':
+        cliCommand = 'plugin';
+        cliArgs = ['install', arg];
+        break;
+      case 'cli-plugin-enable':
+        cliCommand = 'plugin';
+        cliArgs = ['enable', arg];
+        break;
+      case 'cli-plugin-disable':
+        cliCommand = 'plugin';
+        cliArgs = ['disable', arg];
+        break;
+      case 'cli-mcp-remove':
+        cliCommand = 'mcp';
+        cliArgs = ['remove', arg];
+        break;
+      case 'cli-mcp-get':
+        cliCommand = 'mcp';
+        cliArgs = ['get', arg];
+        break;
+      default:
+        // Generic: use arg as additional argument
+        cliCommand = command.name.replace('/', '');
+        cliArgs = arg.split(' ');
+    }
+
+    sendMessage({
+      type: 'cli-command',
+      command: cliCommand,
+      args: cliArgs
+    });
   };
 
   const handleKeyDown = (e) => {
@@ -143,7 +307,24 @@ function Chat() {
     setInputText('');
     setShowCommandPalette(false);
 
+    // Check if command requires input
+    if (command.hasInput) {
+      // Show input dialog or send to Claude for input
+      if (command.options && command.options.length > 0) {
+        // Show options in message
+        const optionsContent = `**${command.label}**\n\nAvailable options: ${command.options.map(o => `\`${o}\``).join(', ')}\n\nPlease enter your choice:`;
+        setMessages(prev => [...prev, { role: 'assistant', content: optionsContent }]);
+      } else {
+        // Prompt for input
+        const promptContent = `**${command.label}**\n\n${command.description}\n\nPlease enter the value:`;
+        setMessages(prev => [...prev, { role: 'assistant', content: promptContent }]);
+      }
+      return;
+    }
+
+    // Execute command
     switch (command.action) {
+      // UI Commands
       case 'open-skill-manager':
         setShowSkillManager(true);
         break;
@@ -162,9 +343,79 @@ function Chat() {
       case 'terminal-mode':
         sendToClaude('I want to run terminal/shell commands. Help me execute commands in this project.');
         break;
+
+      // CLI Commands with direct execution
+      case 'cli-resume':
+        executeCliCommand('--resume');
+        break;
+      case 'cli-continue':
+        executeCliCommand('--continue');
+        break;
+      case 'cli-fork':
+        executeCliCommand('--fork-session');
+        break;
+      case 'cli-disable-skills':
+        executeCliCommand('--disable-slash-commands');
+        break;
+      case 'cli-bare':
+        executeCliCommand('--bare');
+        break;
+      case 'cli-verbose':
+        executeCliCommand('--verbose');
+        break;
+      case 'cli-debug':
+        executeCliCommand('--debug');
+        break;
+      case 'cli-tmux':
+        executeCliCommand('--tmux');
+        break;
+      case 'cli-agents':
+        executeCliCommand('agents');
+        break;
+      case 'cli-plugin-list':
+        executeCliCommand('plugin', ['list']);
+        break;
+      case 'cli-mcp-list':
+        executeCliCommand('mcp', ['list']);
+        break;
+      case 'cli-auth':
+        executeCliCommand('auth');
+        break;
+      case 'cli-setup-token':
+        executeCliCommand('setup-token');
+        break;
+      case 'cli-doctor':
+        executeCliCommand('doctor');
+        break;
+      case 'cli-update':
+        executeCliCommand('update');
+        break;
+      case 'cli-help':
+        executeCliCommand('--help');
+        break;
+
       default:
         console.log('Unknown command:', command.action);
+        if (command.cli) {
+          // Execute CLI command if provided
+          const parts = command.cli.split(' ');
+          const cmd = parts[0] === 'claude' ? parts[1] : parts[0];
+          const args = parts.slice(2);
+          executeCliCommand(cmd, args);
+        }
     }
+  };
+
+  // Execute CLI command and show result
+  const executeCliCommand = (command, args = []) => {
+    setIsProcessing(true);
+    setMessages(prev => [...prev, { role: 'user', content: `Executing: claude ${command} ${args.join(' ')}` }]);
+
+    sendMessage({
+      type: 'cli-command',
+      command,
+      args
+    });
   };
 
   // Handle input change - show command palette on '/'
@@ -196,22 +447,59 @@ function Chat() {
 
   // Show help message
   const showHelp = () => {
-    const helpContent = `**Available Commands:**
+    const helpContent = `**Claude Code CLI VoiceInter - Commands**
 
-- \`/skill\` - Open Skill Manager (import/create skills)
-- \`/new\` - Start new session
+Type \`/\` in the input to see all available CLI commands.
+
+**Session Commands:**
+- \`/new\` - New session
+- \`/resume\` - Resume previous session
+- \`/continue\` - Continue recent session
+- \`/fork\` - Fork current session
+
+**Model & Agent:**
+- \`/model\` - Change model (opus/sonnet/haiku)
+- \`/agent\` - Set agent
+- \`/agents\` - List agents
+- \`/effort\` - Set effort level
+
+**Skills & Plugins:**
+- \`/skill\` - Open Skill Manager
+- \`/plugin\` - List plugins
+- \`/plugin-install\` - Install plugin
+- \`/plugin-enable\` - Enable plugin
+
+**MCP Servers:**
+- \`/mcp\` - List MCP servers
+- \`/mcp-add\` - Add MCP server
+- \`/mcp-remove\` - Remove MCP server
+
+**Auth & Setup:**
+- \`/auth\` - Manage authentication
+- \`/setup-token\` - Setup long-lived token
+- \`/doctor\` - Check CLI health
+- \`/update\` - Update CLI
+
+**Git & Worktree:**
+- \`/worktree\` - Create git worktree
+- \`/tmux\` - Tmux session
+
+**Chat Actions:**
 - \`/clear\` - Clear messages
-- \`/export\` - Export chat as markdown
+- \`/export\` - Export chat
 - \`/terminal\` - Terminal mode
-- \`/help\` - Show this help
+- \`/bare\` - Bare mode (minimal)
+- \`/verbose\` - Verbose mode
+- \`/debug\` - Debug mode
 
 **Voice Features:**
-- Click mic button to start voice input
-- Response will be spoken automatically
+- Click mic button for voice input
+- Response auto-spoken
 
 **Tips:**
-- Messages go to the same Claude instance (context preserved)
-- Use Shift+Enter for new lines`;
+- Messages preserve context
+- Shift+Enter for new lines
+- Commands with \`input\` label need additional input`;
 
     setMessages(prev => [...prev, { role: 'assistant', content: helpContent }]);
   };

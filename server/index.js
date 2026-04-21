@@ -457,6 +457,130 @@ function handleChatConnection(ws) {
             error: 'Failed to get skill'
           }));
         }
+
+      // ============================================
+      // CLI COMMAND EXECUTION
+      // ============================================
+      } else if (data.type === 'cli-command') {
+        try {
+          const { command, args = [] } = data;
+          console.log('[CLI] Executing:', command, args.join(' '));
+
+          // Build full command
+          const fullArgs = [command, ...args];
+
+          // Spawn CLI process
+          const cliProcess = spawn(CLAUDE_PATH, fullArgs, {
+            cwd: PROJECT_PATH,
+            env: {
+              ...process.env,
+              HOME: process.env.HOME || '/Users/lg'
+            },
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+
+          let output = '';
+          let errorOutput = '';
+
+          cliProcess.stdout.on('data', (data) => {
+            output += data.toString();
+          });
+
+          cliProcess.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+          });
+
+          cliProcess.on('close', (exitCode) => {
+            console.log('[CLI] Exit code:', exitCode);
+
+            ws.send(JSON.stringify({
+              type: 'cli-result',
+              command: command,
+              args: args,
+              exitCode,
+              output: output.trim(),
+              error: errorOutput.trim()
+            }));
+          });
+
+          cliProcess.on('error', (err) => {
+            console.error('[CLI] Error:', err.message);
+            ws.send(JSON.stringify({
+              type: 'cli-error',
+              command: command,
+              error: err.message
+            }));
+          });
+
+        } catch (error) {
+          console.error('[ERROR] CLI command:', error.message);
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'Failed to execute CLI command'
+          }));
+        }
+
+      } else if (data.type === 'cli-command-with-input') {
+        try {
+          const { command, args = [], inputValue } = data;
+          console.log('[CLI] Executing with input:', command, args.join(' '));
+
+          // Build full command - add inputValue as argument if needed
+          let fullArgs = [command, ...args];
+          if (inputValue) {
+            fullArgs.push(inputValue);
+          }
+
+          // Spawn CLI process
+          const cliProcess = spawn(CLAUDE_PATH, fullArgs, {
+            cwd: PROJECT_PATH,
+            env: {
+              ...process.env,
+              HOME: process.env.HOME || '/Users/lg'
+            },
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+
+          let output = '';
+          let errorOutput = '';
+
+          cliProcess.stdout.on('data', (data) => {
+            output += data.toString();
+          });
+
+          cliProcess.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+          });
+
+          cliProcess.on('close', (exitCode) => {
+            console.log('[CLI] Exit code:', exitCode);
+
+            ws.send(JSON.stringify({
+              type: 'cli-result',
+              command: command,
+              args: fullArgs,
+              exitCode,
+              output: output.trim(),
+              error: errorOutput.trim()
+            }));
+          });
+
+          cliProcess.on('error', (err) => {
+            console.error('[CLI] Error:', err.message);
+            ws.send(JSON.stringify({
+              type: 'cli-error',
+              command: command,
+              error: err.message
+            }));
+          });
+
+        } catch (error) {
+          console.error('[ERROR] CLI command:', error.message);
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'Failed to execute CLI command'
+          }));
+        }
       }
 
     } catch (error) {
