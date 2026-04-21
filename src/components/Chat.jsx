@@ -12,6 +12,7 @@ function Chat() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [claudeReady, setClaudeReady] = useState(false);
+  const [isComposing, setIsComposing] = useState(false); // Input method composition state
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -110,10 +111,20 @@ function Chat() {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Don't send if input method is composing (e.g., typing Chinese)
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault();
       handleSubmit();
     }
+  };
+
+  // Handle input method composition events (for Chinese/Japanese/Korean input)
+  const handleCompositionStart = () => {
+    setIsComposing(true);
+  };
+
+  const handleCompositionEnd = () => {
+    setIsComposing(false);
   };
 
   const handleVoiceClick = () => {
@@ -333,6 +344,8 @@ function Chat() {
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
                 placeholder="Message Claude..."
                 disabled={isProcessing}
                 rows={1}
