@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
-import VoiceButton from './VoiceButton';
 import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw } from 'lucide-react';
 
 function Chat() {
@@ -328,17 +327,8 @@ function Chat() {
       <footer className="relative px-6 py-6">
         <div className="max-w-3xl mx-auto">
           <form onSubmit={handleSubmit} className="flex items-end gap-4">
-            {/* Voice Button */}
-            <VoiceButton
-              isListening={voice.isListening}
-              isSpeaking={voice.isSpeaking}
-              isSupported={voice.isSupported}
-              onClick={handleVoiceClick}
-              disabled={isProcessing || !isConnected}
-            />
-
-            {/* Text Input */}
-            <div className="flex-1 relative">
+            {/* Text Input with Voice Button inside */}
+            <div className="flex-1 relative flex items-end">
               <textarea
                 ref={inputRef}
                 value={inputText}
@@ -349,7 +339,7 @@ function Chat() {
                 placeholder="Message Claude..."
                 disabled={isProcessing}
                 rows={1}
-                className="w-full px-6 py-4 bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:bg-white/15 resize-none transition-all duration-200 disabled:opacity-50 text-[15px]"
+                className="w-full px-6 py-4 pr-14 bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:bg-white/15 resize-none transition-all duration-200 disabled:opacity-50 text-[15px]"
                 style={{
                   minHeight: '56px',
                   maxHeight: '200px',
@@ -357,9 +347,34 @@ function Chat() {
                 }}
               />
 
+              {/* Voice Button - inside input on the right */}
+              <div className="absolute right-3 bottom-3">
+                <button
+                  type="button"
+                  onClick={handleVoiceClick}
+                  disabled={isProcessing || !isConnected || !voice.isSupported}
+                  title={!voice.isSupported ? 'Voice not supported' : voice.isListening ? 'Stop listening' : 'Start voice input'}
+                  className={`h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border ${
+                    voice.isListening
+                      ? 'bg-gradient-to-r from-red-500 to-orange-500 border-red-400/50 text-white shadow-lg shadow-red-500/30 animate-pulse'
+                      : voice.isSpeaking
+                      ? 'bg-gradient-to-r from-purple-500 to-pink-500 border-purple-400/50 text-white shadow-lg shadow-purple-500/30'
+                      : 'bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20'
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {voice.isSpeaking ? (
+                    <Volume2 className="w-5 h-5 animate-pulse" />
+                  ) : voice.isListening ? (
+                    <Mic className="w-5 h-5" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+
               {/* Processing indicator */}
               {isProcessing && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                <div className="absolute right-16 bottom-3">
                   <div className="flex gap-1">
                     <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                     <span className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
