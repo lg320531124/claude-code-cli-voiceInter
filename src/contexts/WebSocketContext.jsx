@@ -84,9 +84,20 @@ function useWebSocketProvider() {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     } else {
-      console.warn('[WS] Not connected');
+      console.warn('[WS] Not connected, state:', wsRef.current?.readyState);
     }
   };
+
+  // Ping interval to keep connection alive
+  useEffect(() => {
+    const pingInterval = setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 15000);
+
+    return () => clearInterval(pingInterval);
+  }, [isConnected]);
 
   // Connect on mount
   useEffect(() => {
