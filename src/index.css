@@ -2,74 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom styles */
+/* Apple-style animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes bounce-soft {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+.animate-bounce-soft {
+  animation: bounce-soft 1s ease-in-out infinite;
+}
+
+/* Custom scrollbar - Apple style */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #181825;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #45475a;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6c7086;
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.message-content pre {
-  background: #11111b;
-  padding: 12px 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 8px 0;
-  border: 1px solid #45475a;
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
 }
 
-.message-content code {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
+/* Focus states */
+*:focus {
+  outline: none;
 }
 
-.message-content p {
-  margin-bottom: 8px;
+/* Selection color */
+::selection {
+  background: rgba(168, 85, 247, 0.3);
+  color: white;
 }
 
-.message-content p:last-child {
-  margin-bottom: 0;
+/* Textarea auto-resize helper */
+textarea {
+  field-sizing: content;
 }
 
-.typing-dot {
-  animation: typing-bounce 1.4s infinite ease-in-out both;
+/* Glassmorphism helper */
+.glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.typing-dot:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.typing-dot:nth-child(2) {
-  animation-delay: -0.16s;
-}
-
-@keyframes typing-bounce {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.4;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-.voice-recording {
-  animation: pulse-voice 1.5s ease-in-out infinite;
-}
-
-.transition-smooth {
-  transition: all 0.2s ease-out;
+/* Gradient text helper */
+.gradient-text {
+  background: linear-gradient(135deg, #a855f7, #ec4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
