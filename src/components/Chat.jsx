@@ -170,7 +170,7 @@ function Chat() {
       type: 'claude-command',
       command: text.trim(),
       options: {
-        cwd: process.cwd(),
+        cwd: '/', // Backend will use current directory
         sessionId: sessionId // Resume session if exists
       }
     });
