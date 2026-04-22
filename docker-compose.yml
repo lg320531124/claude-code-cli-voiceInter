@@ -1,0 +1,73 @@
+# Claude Code CLI VoiceInter - Docker Compose
+# Development and production stack configuration
+
+version: '3.8'
+
+services:
+  # Main application
+  voiceInter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3001
+      # VoiceMode endpoints - use service names
+      - WHISPER_ENDPOINT=http://whisper:2022/v1
+      - KOKORO_ENDPOINT=http://kokoro:8880/v1
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - whisper
+      - kokoro
+    restart: unless-stopped
+    networks:
+      - voice-network
+
+  # Whisper STT service (placeholder - requires whisper.cpp image)
+  whisper:
+    image: ghcr.io/anthropics/whisper-server:latest
+    ports:
+      - "2022:2022"
+    volumes:
+      - whisper-models:/models
+    environment:
+      - WHISPER_PORT=2022
+      - WHISPER_MODEL=base
+    restart: unless-stopped
+    networks:
+      - voice-network
+    profiles:
+      - voice
+
+  # Kokoro TTS service (placeholder - requires kokoro image)
+  kokoro:
+    image: ghcr.io/anthropics/kokoro-tts:latest
+    ports:
+      - "8880:8880"
+    volumes:
+      - kokoro-models:/models
+    environment:
+      - KOKORO_PORT=8880
+    restart: unless-stopped
+    networks:
+      - voice-network
+    profiles:
+      - voice
+
+volumes:
+  whisper-models:
+  kokoro-models:
+  data:
+
+networks:
+  voice-network:
+    driver: bridge
+
+# Development override (use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up)
+# See docker-compose.dev.yml for development configuration

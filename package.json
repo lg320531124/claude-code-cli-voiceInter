@@ -21,7 +21,12 @@
     "lint": "eslint src server",
     "lint:fix": "eslint src server --fix",
     "format": "prettier --write \"src/**/*.{js,jsx}\" \"server/**/*.js\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx}\" \"server/**/*.js\""
+    "format:check": "prettier --check \"src/**/*.{js,jsx}\" \"server/**/*.js\"",
+    "docker:build": "docker build -t claude-voiceinter .",
+    "docker:run": "docker run -p 3001:3001 -p 3000:3000 claude-voiceinter",
+    "docker:up": "docker-compose up",
+    "docker:down": "docker-compose down",
+    "docker:dev": "docker-compose -f docker-compose.yml -f docker-compose.dev.yml up"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
