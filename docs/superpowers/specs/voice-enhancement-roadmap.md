@@ -210,12 +210,14 @@ type: project
 **实现:** TTSSettings.jsx - 速度滑块 + 声音选择 + 测试功能
 
 #### 10.3 高级功能 ✅ 部分完成
-- [ ] 实时字幕模式
+- [x] 实时字幕模式
 - [ ] 语音命令支持
 - [ ] 对话历史回放
 - [x] 导出对话记录
 
-**实现:** conversationExport.js + ExportPanel.jsx
+**实现:** 
+- conversationExport.js + ExportPanel.jsx (导出)
+- RealtimeSubtitles.jsx + SubtitlesControl.jsx (字幕)
 
 **预估时间:** 3 天
 
