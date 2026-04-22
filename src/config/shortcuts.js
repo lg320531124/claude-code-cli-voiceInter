@@ -159,6 +159,42 @@ export const shortcuts = [
     action: 'stop-voice-all',
     category: 'Voice'
   },
+  // Conversation shortcuts
+  {
+    key: 'Ctrl+Shift+N',
+    mac: '⌘⇧N',
+    description: '新建对话',
+    action: 'new-conversation',
+    category: 'Conversation'
+  },
+  {
+    key: 'Ctrl+Shift+Tab',
+    mac: '⌘⇧⇥',
+    description: '上一个对话',
+    action: 'prev-conversation',
+    category: 'Conversation'
+  },
+  {
+    key: 'Ctrl+Tab',
+    mac: '⌘⇥',
+    description: '下一个对话',
+    action: 'next-conversation',
+    category: 'Conversation'
+  },
+  {
+    key: 'Ctrl+Shift+D',
+    mac: '⌘⇧D',
+    description: '删除当前对话',
+    action: 'delete-conversation',
+    category: 'Conversation'
+  },
+  {
+    key: 'Ctrl+Shift+B',
+    mac: '⌘⇧B',
+    description: '切换对话列表显示',
+    action: 'toggle-conversation-list',
+    category: 'Conversation'
+  },
 ];
 
 // Group shortcuts by category
@@ -191,4 +227,10 @@ export const shortcutActions = {
   'toggle-conversation-mode': 'toggleConversationMode',
   'quick-voice-start': 'quickVoiceStart',
   'stop-voice-all': 'stopVoiceAll',
+  // Conversation actions
+  'new-conversation': 'newConversation',
+  'prev-conversation': 'prevConversation',
+  'next-conversation': 'nextConversation',
+  'delete-conversation': 'deleteConversation',
+  'toggle-conversation-list': 'toggleConversationList',
 };

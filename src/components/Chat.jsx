@@ -899,6 +899,32 @@ function Chat() {
           voice.stopSpeaking?.();
         }
         break;
+      // Conversation shortcuts
+      case 'new-conversation':
+        startNewConversation();
+        break;
+      case 'prev-conversation':
+        if (conversations.length > 0) {
+          const currentIndex = conversations.findIndex(c => c.id === activeConversationId);
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : conversations.length - 1;
+          handleConversationSelect(conversations[prevIndex].id);
+        }
+        break;
+      case 'next-conversation':
+        if (conversations.length > 0) {
+          const currentIndex = conversations.findIndex(c => c.id === activeConversationId);
+          const nextIndex = currentIndex < conversations.length - 1 ? currentIndex + 1 : 0;
+          handleConversationSelect(conversations[nextIndex].id);
+        }
+        break;
+      case 'delete-conversation':
+        if (activeConversationId) {
+          handleConversationDelete(activeConversationId);
+        }
+        break;
+      case 'toggle-conversation-list':
+        setShowConversationList(prev => !prev);
+        break;
       default:
         console.log('Unknown shortcut action:', action);
     }
@@ -941,6 +967,42 @@ function Chat() {
         if (key === 'S' && e.shiftKey) {
           e.preventDefault();
           executeShortcutAction('stop-voice-all');
+          return;
+        }
+
+        // Conversation shortcuts - always active
+        // Ctrl+Shift+N (new conversation)
+        if (key === 'N' && e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('new-conversation');
+          return;
+        }
+
+        // Ctrl+Tab (next conversation)
+        if (e.key === 'Tab' && !e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('next-conversation');
+          return;
+        }
+
+        // Ctrl+Shift+Tab (prev conversation)
+        if (e.key === 'Tab' && e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('prev-conversation');
+          return;
+        }
+
+        // Ctrl+Shift+D (delete conversation)
+        if (key === 'D' && e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('delete-conversation');
+          return;
+        }
+
+        // Ctrl+Shift+B (toggle conversation list)
+        if (key === 'B' && e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('toggle-conversation-list');
           return;
         }
 
