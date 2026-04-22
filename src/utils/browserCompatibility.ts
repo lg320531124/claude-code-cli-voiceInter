@@ -1,14 +1,78 @@
-// src/utils/browserCompatibility.js
+// src/utils/browserCompatibility.ts
 //
 // 浏览器兼容性检测和适配
 // - 音频格式检测
 // - 浏览器特性检测
 // - Polyfill 建议
 
+interface BrowserSupportInfo {
+  // Web Speech API (语音识别/合成)
+  speechRecognition: boolean;
+  speechSynthesis: boolean;
+
+  // 音频格式
+  webmOpus: boolean;
+  mp3: boolean;
+  wav: boolean;
+  ogg: boolean;
+  webm: boolean;
+
+  // 其他特性
+  mediaDevices: boolean;
+  mediaRecorder: boolean;
+  audioContext: boolean;
+  indexedDB: boolean;
+  webWorkers: boolean;
+  webSocket: boolean;
+
+  // 浏览器信息
+  browser: string;
+  browserVersion: string;
+  platform: string;
+  isMobile: boolean;
+}
+
+interface AudioFormat {
+  type: string;
+  name: string;
+  quality: 'best' | 'good' | 'medium' | 'low' | 'unknown';
+}
+
+interface CompatibilityReport {
+  browser: string;
+  version: string;
+  platform: string;
+  isMobile: boolean;
+  issues: string[];
+  warnings: string[];
+  recommendations: string[];
+  overallScore: number;
+}
+
+interface AdaptedAudioConfig {
+  mimeType: string;
+  audioBitsPerSecond: number;
+  constraints: {
+    audio: {
+      echoCancellation: boolean;
+      noiseSuppression: boolean;
+      autoGainControl: boolean;
+      sampleRate: number;
+    };
+  };
+}
+
+interface CompatibilityWarning {
+  severity: 'error' | 'warning';
+  title: string;
+  message: string;
+  score: number;
+}
+
 /**
  * 检测浏览器支持
  */
-const browserSupport = {
+const browserSupport: BrowserSupportInfo = {
   // Web Speech API (语音识别/合成)
   speechRecognition: false,
   speechSynthesis: false,
@@ -18,6 +82,7 @@ const browserSupport = {
   mp3: false,
   wav: false,
   ogg: false,
+  webm: false,
 
   // 其他特性
   mediaDevices: false,
@@ -31,40 +96,46 @@ const browserSupport = {
   browser: 'unknown',
   browserVersion: 'unknown',
   platform: 'unknown',
-  isMobile: false
+  isMobile: false,
 };
 
 /**
  * 初始化检测
  */
-function detectBrowserSupport() {
+function detectBrowserSupport(): BrowserSupportInfo {
   // 浏览器识别
   const ua = navigator.userAgent;
   browserSupport.platform = navigator.platform;
 
   if (ua.includes('Chrome') && !ua.includes('Edg')) {
     browserSupport.browser = 'Chrome';
-    browserSupport.browserVersion = ua.match(/Chrome\/(\d+)/)?.[1] || 'unknown';
+    const match = ua.match(/Chrome\/(\d+)/);
+    browserSupport.browserVersion = match?.[1] || 'unknown';
   } else if (ua.includes('Safari') && !ua.includes('Chrome')) {
     browserSupport.browser = 'Safari';
-    browserSupport.browserVersion = ua.match(/Version\/(\d+)/)?.[1] || 'unknown';
+    const match = ua.match(/Version\/(\d+)/);
+    browserSupport.browserVersion = match?.[1] || 'unknown';
   } else if (ua.includes('Firefox')) {
     browserSupport.browser = 'Firefox';
-    browserSupport.browserVersion = ua.match(/Firefox\/(\d+)/)?.[1] || 'unknown';
+    const match = ua.match(/Firefox\/(\d+)/);
+    browserSupport.browserVersion = match?.[1] || 'unknown';
   } else if (ua.includes('Edg')) {
     browserSupport.browser = 'Edge';
-    browserSupport.browserVersion = ua.match(/Edg\/(\d+)/)?.[1] || 'unknown';
+    const match = ua.match(/Edg\/(\d+)/);
+    browserSupport.browserVersion = match?.[1] || 'unknown';
   }
 
   // 移动端检测
   browserSupport.isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
 
   // Web Speech API
-  browserSupport.speechRecognition = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+  browserSupport.speechRecognition =
+    'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
   browserSupport.speechSynthesis = 'speechSynthesis' in window;
 
   // 媒体设备
-  browserSupport.mediaDevices = 'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices;
+  browserSupport.mediaDevices =
+    'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices;
 
   // MediaRecorder
   browserSupport.mediaRecorder = 'MediaRecorder' in window;
@@ -95,13 +166,13 @@ function detectBrowserSupport() {
 /**
  * 获取最佳音频格式
  */
-function getBestAudioFormat() {
+function getBestAudioFormat(): AudioFormat {
   // 优先级顺序
-  const formats = [
+  const formats: AudioFormat[] = [
     { type: 'audio/webm;codecs=opus', name: 'webm-opus', quality: 'best' },
     { type: 'audio/webm', name: 'webm', quality: 'good' },
     { type: 'audio/mp4', name: 'mp4', quality: 'medium' },
-    { type: 'audio/wav', name: 'wav', quality: 'low' }  // WAV 不压缩，体积大
+    { type: 'audio/wav', name: 'wav', quality: 'low' }, // WAV 不压缩，体积大
   ];
 
   for (const format of formats) {
@@ -117,12 +188,12 @@ function getBestAudioFormat() {
 /**
  * 获取兼容性报告
  */
-function getCompatibilityReport() {
+function getCompatibilityReport(): CompatibilityReport {
   detectBrowserSupport();
 
-  const issues = [];
-  const warnings = [];
-  const recommendations = [];
+  const issues: string[] = [];
+  const warnings: string[] = [];
+  const recommendations: string[] = [];
 
   // 关键功能检测
   if (!browserSupport.mediaDevices) {
@@ -175,26 +246,27 @@ function getCompatibilityReport() {
     issues,
     warnings,
     recommendations,
-    overallScore: calculateCompatibilityScore()
+    overallScore: calculateCompatibilityScore(),
   };
 }
 
 /**
  * 计算兼容性分数
  */
-function calculateCompatibilityScore() {
-  const weights = {
+function calculateCompatibilityScore(): number {
+  const weights: Record<string, number> = {
     mediaDevices: 30,
     mediaRecorder: 25,
     webmOpus: 15,
     speechSynthesis: 10,
     indexedDB: 10,
-    audioContext: 10
+    audioContext: 10,
   };
 
   let score = 0;
   for (const [feature, weight] of Object.entries(weights)) {
-    if (browserSupport[feature]) {
+    const key = feature as keyof BrowserSupportInfo;
+    if (browserSupport[key]) {
       score += weight;
     }
   }
@@ -205,7 +277,7 @@ function calculateCompatibilityScore() {
 /**
  * 获取适配后的音频配置
  */
-function getAdaptedAudioConfig() {
+function getAdaptedAudioConfig(): AdaptedAudioConfig {
   const bestFormat = getBestAudioFormat();
 
   return {
@@ -216,23 +288,23 @@ function getAdaptedAudioConfig() {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        sampleRate: browserSupport.webmOpus ? 24000 : 16000
-      }
-    }
+        sampleRate: browserSupport.webmOpus ? 24000 : 16000,
+      },
+    },
   };
 }
 
 /**
  * 显示兼容性警告 UI
  */
-function showCompatibilityWarning(report) {
+function showCompatibilityWarning(report: CompatibilityReport): CompatibilityWarning | null {
   if (report.issues.length === 0 && report.warnings.length === 0) {
     return null;
   }
 
-  const severity = report.issues.length > 0 ? 'error' : 'warning';
+  const severity: 'error' | 'warning' = report.issues.length > 0 ? 'error' : 'warning';
 
-  const messages = [];
+  const messages: string[] = [];
   if (report.issues.length > 0) {
     messages.push(`❌ 问题:\n${report.issues.map(i => `- ${i}`).join('\n')}`);
   }
@@ -247,7 +319,7 @@ function showCompatibilityWarning(report) {
     severity,
     title: '浏览器兼容性',
     message: messages.join('\n\n'),
-    score: report.overallScore
+    score: report.overallScore,
   };
 }
 
@@ -261,11 +333,19 @@ export {
   getCompatibilityReport,
   getAdaptedAudioConfig,
   showCompatibilityWarning,
-  calculateCompatibilityScore
+  calculateCompatibilityScore,
+};
+
+export type {
+  BrowserSupportInfo,
+  AudioFormat,
+  CompatibilityReport,
+  AdaptedAudioConfig,
+  CompatibilityWarning,
 };
 
 export default {
   browserSupport,
   getCompatibilityReport,
-  getAdaptedAudioConfig
+  getAdaptedAudioConfig,
 };

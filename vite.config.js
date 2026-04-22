@@ -9,14 +9,18 @@ export default defineConfig({
     proxy: {
       '/ws': {
         target: process.env.HOST === '0.0.0.0' ? 'ws://localhost:3001' : 'ws://localhost:3001',
-        ws: true
-      }
-    }
+        ws: true,
+      },
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
   },
   css: {
-    postcss: './postcss.config.js'
-  }
+    postcss: './postcss.config.js',
+  },
 });

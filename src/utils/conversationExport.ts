@@ -1,4 +1,4 @@
-// src/utils/conversationExport.js
+// src/utils/conversationExport.ts
 //
 // 对话记录导出工具
 // - JSON 格式导出 (完整数据)
@@ -7,37 +7,87 @@
 // - 时间范围筛选
 // - 文件下载辅助
 
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: number;
+  id?: string;
+  sessionId?: string;
+  model?: string;
+  tokens?: number;
+}
+
+interface ExportOptions {
+  startTime?: number;
+  endTime?: number;
+  includeMetadata?: boolean;
+  title?: string;
+}
+
+interface ExportInfo {
+  exportedAt: string;
+  messageCount: number;
+  format: string;
+  source: string;
+}
+
+interface ExportData {
+  exportInfo?: ExportInfo;
+  messages: Message[];
+}
+
+interface ExportFormat {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
+interface ExportStats {
+  totalMessages: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalCharacters: number;
+  startTime: number | null;
+  endTime: number | null;
+  duration: number;
+}
+
 /**
  * 格式化日期时间
  */
-function formatDateTime(timestamp) {
+function formatDateTime(timestamp: number): string {
   const date = new Date(timestamp);
   return date.toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 }
 
 /**
  * 格式化短日期
  */
-function formatShortDate(timestamp) {
+function formatShortDate(timestamp: number): string {
   const date = new Date(timestamp);
   return date.toLocaleDateString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 }
 
 /**
  * 过滤消息 - 按时间范围
  */
-function filterByTimeRange(messages, startTime, endTime) {
+function filterByTimeRange(
+  messages: Message[],
+  startTime?: number,
+  endTime?: number
+): Message[] {
   if (!startTime && !endTime) return messages;
 
   return messages.filter(msg => {
@@ -52,18 +102,20 @@ function filterByTimeRange(messages, startTime, endTime) {
  * 导出为 JSON 格式
  * 包含完整的消息数据结构
  */
-export function exportAsJSON(messages, options = {}) {
+export function exportAsJSON(messages: Message[], options: ExportOptions = {}): string {
   const { startTime, endTime, includeMetadata = true } = options;
 
   const filteredMessages = filterByTimeRange(messages, startTime, endTime);
 
-  const exportData = {
-    exportInfo: includeMetadata ? {
-      exportedAt: new Date().toISOString(),
-      messageCount: filteredMessages.length,
-      format: 'json',
-      source: 'Claude Code CLI VoiceInter'
-    } : undefined,
+  const exportData: ExportData = {
+    exportInfo: includeMetadata
+      ? {
+          exportedAt: new Date().toISOString(),
+          messageCount: filteredMessages.length,
+          format: 'json',
+          source: 'Claude Code CLI VoiceInter',
+        }
+      : undefined,
     messages: filteredMessages.map(msg => ({
       role: msg.role,
       content: msg.content,
@@ -72,9 +124,9 @@ export function exportAsJSON(messages, options = {}) {
         id: msg.id,
         sessionId: msg.sessionId,
         model: msg.model,
-        tokens: msg.tokens
-      })
-    }))
+        tokens: msg.tokens,
+      }),
+    })),
   };
 
   // 移除 undefined 属性
@@ -87,12 +139,12 @@ export function exportAsJSON(messages, options = {}) {
  * 导出为 Markdown 格式
  * 适合阅读和文档记录
  */
-export function exportAsMarkdown(messages, options = {}) {
+export function exportAsMarkdown(messages: Message[], options: ExportOptions = {}): string {
   const { startTime, endTime, title = '对话记录' } = options;
 
   const filteredMessages = filterByTimeRange(messages, startTime, endTime);
 
-  const lines = [];
+  const lines: string[] = [];
 
   // 标题和元信息
   lines.push(`# ${title}`);
@@ -121,12 +173,12 @@ export function exportAsMarkdown(messages, options = {}) {
  * 导出为 TXT 格式
  * 简单纯文本格式
  */
-export function exportAsTXT(messages, options = {}) {
+export function exportAsTXT(messages: Message[], options: ExportOptions = {}): string {
   const { startTime, endTime } = options;
 
   const filteredMessages = filterByTimeRange(messages, startTime, endTime);
 
-  const lines = [];
+  const lines: string[] = [];
 
   lines.push('=== 对话记录 ===');
   lines.push(`导出时间: ${formatDateTime(Date.now())}`);
@@ -150,7 +202,11 @@ export function exportAsTXT(messages, options = {}) {
 /**
  * 触发文件下载
  */
-export function downloadFile(content, filename, mimeType = 'text/plain') {
+export function downloadFile(
+  content: string,
+  filename: string,
+  mimeType: string = 'text/plain'
+): void {
   // 创建 Blob
   const blob = new Blob([content], { type: mimeType });
 
@@ -172,7 +228,7 @@ export function downloadFile(content, filename, mimeType = 'text/plain') {
 /**
  * 导出并下载 JSON 文件
  */
-export function downloadAsJSON(messages, options = {}) {
+export function downloadAsJSON(messages: Message[], options: ExportOptions = {}): void {
   const content = exportAsJSON(messages, options);
   const timestamp = new Date().toISOString().slice(0, 10);
   downloadFile(content, `conversation-${timestamp}.json`, 'application/json');
@@ -181,7 +237,7 @@ export function downloadAsJSON(messages, options = {}) {
 /**
  * 导出并下载 Markdown 文件
  */
-export function downloadAsMarkdown(messages, options = {}) {
+export function downloadAsMarkdown(messages: Message[], options: ExportOptions = {}): void {
   const content = exportAsMarkdown(messages, options);
   const timestamp = new Date().toISOString().slice(0, 10);
   downloadFile(content, `conversation-${timestamp}.md`, 'text/markdown');
@@ -190,7 +246,7 @@ export function downloadAsMarkdown(messages, options = {}) {
 /**
  * 导出并下载 TXT 文件
  */
-export function downloadAsTXT(messages, options = {}) {
+export function downloadAsTXT(messages: Message[], options: ExportOptions = {}): void {
   const content = exportAsTXT(messages, options);
   const timestamp = new Date().toISOString().slice(0, 10);
   downloadFile(content, `conversation-${timestamp}.txt`, 'text/plain');
@@ -199,11 +255,11 @@ export function downloadAsTXT(messages, options = {}) {
 /**
  * 复制到剪贴板
  */
-export async function copyToClipboard(content) {
+export async function copyToClipboard(content: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(content);
     return true;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('[Export] 复制失败:', error);
     // Fallback: 使用传统方法
     const textarea = document.createElement('textarea');
@@ -216,7 +272,7 @@ export async function copyToClipboard(content) {
       document.execCommand('copy');
       document.body.removeChild(textarea);
       return true;
-    } catch (e) {
+    } catch (e: unknown) {
       document.body.removeChild(textarea);
       return false;
     }
@@ -226,7 +282,11 @@ export async function copyToClipboard(content) {
 /**
  * 获取导出预览
  */
-export function getExportPreview(messages, format, options = {}) {
+export function getExportPreview(
+  messages: Message[],
+  format: string,
+  options: ExportOptions = {}
+): string {
   // 只取前 5 条消息预览
   const previewMessages = messages.slice(-5);
 
@@ -245,16 +305,16 @@ export function getExportPreview(messages, format, options = {}) {
 /**
  * 导出格式选项
  */
-export const EXPORT_FORMATS = [
+export const EXPORT_FORMATS: ExportFormat[] = [
   { id: 'json', name: 'JSON', description: '完整数据，适合导入和分析', icon: 'code' },
   { id: 'markdown', name: 'Markdown', description: '易读格式，适合文档记录', icon: 'file-text' },
-  { id: 'txt', name: 'TXT', description: '纯文本，适合简单查看', icon: 'file' }
+  { id: 'txt', name: 'TXT', description: '纯文本，适合简单查看', icon: 'file' },
 ];
 
 /**
  * 获取导出统计信息
  */
-export function getExportStats(messages) {
+export function getExportStats(messages: Message[]): ExportStats {
   const userMessages = messages.filter(m => m.role === 'user');
   const assistantMessages = messages.filter(m => m.role === 'assistant');
 
@@ -270,11 +330,21 @@ export function getExportStats(messages) {
     totalCharacters: totalChars,
     startTime: firstMessage?.timestamp || null,
     endTime: lastMessage?.timestamp || null,
-    duration: firstMessage && lastMessage
-      ? Math.round((lastMessage.timestamp - firstMessage.timestamp) / 1000 / 60)
-      : 0
+    duration:
+      firstMessage && lastMessage
+        ? Math.round((lastMessage.timestamp! - firstMessage.timestamp!) / 1000 / 60)
+        : 0,
   };
 }
+
+export type {
+  Message,
+  ExportOptions,
+  ExportInfo,
+  ExportData,
+  ExportFormat,
+  ExportStats,
+};
 
 export default {
   exportAsJSON,
@@ -287,5 +357,5 @@ export default {
   copyToClipboard,
   getExportPreview,
   getExportStats,
-  EXPORT_FORMATS
+  EXPORT_FORMATS,
 };

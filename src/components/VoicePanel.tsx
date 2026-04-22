@@ -1,12 +1,12 @@
-// src/components/VoicePanel.jsx
+// src/components/VoicePanel.tsx
 //
-// 语音控制面板 - 集成所有语音功能
-// - 波形动画显示
-// - 双向对话模式切换
-// - 混合 TTS (Kokoro + Browser Fallback)
-// - 错误提示
-// - 音量级别显示
-// - 状态反馈优化
+// Voice control panel - integrated voice functionality
+// - Waveform animation
+// - Bidirectional conversation mode
+// - Hybrid TTS (Kokoro + Browser fallback)
+// - Error display
+// - Volume level display
+// - Status feedback optimization
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -28,47 +28,80 @@ import VoiceWaveform from './VoiceWaveform';
 import ErrorToast from './ErrorToast';
 import TTSSettings from './TTSSettings';
 import LanguageSelector from './LanguageSelector';
-import { getErrorInfo } from '../utils/voiceErrors';
+import { getErrorInfo, VoiceErrorDetail } from '../utils/voiceErrors';
 import { getSTTLanguageCode, getTTSLanguageCode } from '../utils/languageDetection';
-import { matchVoiceCommand, isPotentialCommand } from '../utils/voiceCommands';
+import { matchVoiceCommand } from '../utils/voiceCommands';
 import logger from '../utils/logger';
 
 // Set context for VoicePanel logs
 logger.setContext('VoicePanel');
 
+// Props interface
+interface VoicePanelProps {
+  onUserSpeech?: (text: string) => void;
+  onAssistantSpeech?: (text: string) => void;
+  onInterimTranscript?: (text: string) => void;
+  onCommandExecute?: (action: string, commandId: string) => void;
+  enabled?: boolean;
+  showWaveform?: boolean;
+  autoContinue?: boolean;
+  interruptionEnabled?: boolean;
+}
+
+// Command feedback interface
+interface CommandFeedback {
+  command: string;
+  feedback: string;
+  matchedText: string;
+  timestamp: number;
+}
+
+// Service indicator props
+interface ServiceIndicatorProps {
+  name: string;
+  ready: boolean | null;
+  mode?: string;
+}
+
+// TTS mode type
+type TTSMode = 'kokoro' | 'browser' | null;
+
+// Language type
+type LanguageCode = 'auto' | 'zh-CN' | 'en-US' | 'ja-JP';
+
 function VoicePanel({
   onUserSpeech,
   onAssistantSpeech,
-  onInterimTranscript, // 中间转录文本回调
-  onCommandExecute, // 语音命令执行回调
+  onInterimTranscript,
+  onCommandExecute,
   enabled = true,
   showWaveform = true,
   autoContinue = true,
   interruptionEnabled = true,
-}) {
-  const [error, setError] = useState(null);
+}: VoicePanelProps): React.ReactElement {
+  const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [ttsMode, setTtsMode] = useState(null); // 'kokoro' | 'browser'
+  const [ttsMode, setTtsMode] = useState<TTSMode>(null);
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [ttsVoice, setTtsVoice] = useState('af_sky');
-  const [browserVoices, setBrowserVoices] = useState([]);
-  const [language, setLanguage] = useState('auto');
-  const [isStarting, setIsStarting] = useState(false); // 启动加载状态
-  const [statusMessage, setStatusMessage] = useState(''); // 详细状态消息
-  const [commandFeedback, setCommandFeedback] = useState(null); // 命令执行反馈
-  const [commandEnabled, setCommandEnabled] = useState(true); // 是否启用语音命令
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [language, setLanguage] = useState<LanguageCode>('auto');
+  const [isStarting, setIsStarting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [commandFeedback, setCommandFeedback] = useState<CommandFeedback | null>(null);
+  const [commandEnabled, setCommandEnabled] = useState(true);
 
-  // 处理用户语音 - 检查是否为命令
+  // Handle user speech - check for commands
   const handleUserSpeechWithCommands = useCallback(
-    text => {
-      // 检查是否为语音命令
+    (text: string): void => {
+      // Check if it's a voice command
       if (commandEnabled) {
         const command = matchVoiceCommand(text);
 
         if (command) {
-          logger.debug('识别到语音命令:', { id: command.id, feedback: command.feedback });
+          logger.debug('Voice command detected:', { id: command.id, feedback: command.feedback });
 
-          // 显示命令反馈
+          // Show command feedback
           setCommandFeedback({
             command: command.id,
             feedback: command.feedback,
@@ -76,47 +109,47 @@ function VoicePanel({
             timestamp: Date.now(),
           });
 
-          // 2秒后清除反馈
+          // Clear feedback after 2 seconds
           setTimeout(() => setCommandFeedback(null), 2000);
 
-          // 执行命令
+          // Execute command
           onCommandExecute?.(command.action, command.id);
 
-          // 不传递给 Claude（命令不作为对话内容）
+          // Don't pass to Claude (commands aren't conversation content)
           return;
         }
       }
 
-      // 不是命令，传递给父组件处理
+      // Not a command, pass to parent
       onUserSpeech?.(text);
     },
     [commandEnabled, onCommandExecute, onUserSpeech]
   );
 
-  // 双向对话 hook
+  // Bidirectional voice hook
   const voice = useBidirectionalVoice({
     language: getSTTLanguageCode(language),
     voice: ttsVoice,
     autoContinue,
     interruptionEnabled,
-    silenceThreshold: 3000, // 3秒静音阈值
-    accumulateTranscript: true, // 启用累积模式
+    silenceThreshold: 3000,
+    accumulateTranscript: true,
     onUserSpeech: handleUserSpeechWithCommands,
-    onAssistantSpeech: text => {
+    onAssistantSpeech: (text: string) => {
       onAssistantSpeech?.(text);
     },
     onConversationStart: () => {
-      logger.info('对话开始');
+      logger.info('Conversation started');
     },
     onConversationEnd: () => {
-      logger.info('对话结束');
+      logger.info('Conversation ended');
     },
   });
 
-  // 加载浏览器声音列表
+  // Load browser voices
   useEffect(() => {
     if ('speechSynthesis' in window) {
-      const loadVoices = () => {
+      const loadVoices = (): void => {
         const voices = window.speechSynthesis.getVoices();
         setBrowserVoices(voices);
       };
@@ -125,107 +158,105 @@ function VoicePanel({
     }
   }, []);
 
-  // 混合 TTS hook (Kokoro + Browser Fallback)
+  // Hybrid TTS hook
   const hybridTTS = useHybridTTS({
     voice: ttsVoice,
     speed: ttsSpeed,
     language: getTTSLanguageCode(language),
     preferKokoro: ttsMode !== 'browser',
-    onModeChange: mode => {
+    onModeChange: (mode: TTSMode) => {
       setTtsMode(mode);
-      logger.info('TTS 模式切换:', { mode });
+      logger.info('TTS mode changed:', { mode });
     },
   });
 
-  // 处理语言变化
-  const handleLanguageChange = useCallback(newLanguage => {
+  // Handle language change
+  const handleLanguageChange = useCallback((newLanguage: LanguageCode): void => {
     setLanguage(newLanguage);
-    logger.info('语言切换:', { language: newLanguage });
+    logger.info('Language changed:', { language: newLanguage });
   }, []);
 
-  // 传递中间转录文本到父组件
+  // Pass interim transcript to parent
   useEffect(() => {
     if (onInterimTranscript && voice.interimTranscript) {
       onInterimTranscript(voice.interimTranscript);
     }
   }, [voice.interimTranscript, onInterimTranscript]);
 
-  // 处理速度变化
-  const handleSpeedChange = useCallback(newSpeed => {
+  // Handle speed change
+  const handleSpeedChange = useCallback((newSpeed: number): void => {
     setTtsSpeed(newSpeed);
   }, []);
 
-  // 处理声音变化
-  const handleVoiceChange = useCallback(newVoice => {
+  // Handle voice change
+  const handleVoiceChange = useCallback((newVoice: string): void => {
     setTtsVoice(newVoice);
   }, []);
 
-  // 处理测试语音
+  // Handle test speech
   const handleTestSpeak = useCallback(
-    text => {
+    (text: string): void => {
       hybridTTS.speak(text);
     },
     [hybridTTS]
   );
 
-  // 处理错误 - 更智能的错误处理
+  // Handle errors
   useEffect(() => {
     if (voice.sttReady === false && voice.isConversationActive) {
       setError('whisper-offline');
-      setStatusMessage('语音识别服务离线');
+      setStatusMessage('Speech recognition service offline');
     }
-    // TTS 有了 fallback，不再显示 kokoro-offline 错误
   }, [voice.sttReady, voice.isConversationActive]);
 
-  // 更新状态消息
+  // Update status message
   useEffect(() => {
     if (isStarting) {
-      setStatusMessage('正在启动...');
+      setStatusMessage('Starting...');
     } else if (voice.isListening) {
-      setStatusMessage('正在聆听你的声音...');
+      setStatusMessage('Listening to your voice...');
     } else if (voice.isSpeaking) {
-      setStatusMessage('正在朗读回复...');
+      setStatusMessage('Reading response...');
     } else if (voice.isConversationActive) {
-      setStatusMessage('等待你的发言...');
+      setStatusMessage('Waiting for your input...');
     } else if (voice.sttReady === false) {
-      setStatusMessage('语音服务未就绪');
+      setStatusMessage('Voice service not ready');
     } else {
-      setStatusMessage('点击按钮开始语音对话');
+      setStatusMessage('Click button to start voice conversation');
     }
   }, [isStarting, voice.isListening, voice.isSpeaking, voice.isConversationActive, voice.sttReady]);
 
-  // 使用混合 TTS 播放响应
+  // Speak response with fallback
   const speakResponseWithFallback = useCallback(
-    async text => {
-      if (!text || !text.trim()) return;
+    (text: string): void => {
+      if (!text?.trim()) return;
       hybridTTS.speak(text);
       onAssistantSpeech?.(text);
     },
     [hybridTTS, onAssistantSpeech]
   );
 
-  // 开始对话 - 添加加载状态
-  const handleStartConversation = useCallback(() => {
+  // Start conversation
+  const handleStartConversation = useCallback((): void => {
     setError(null);
     setIsStarting(true);
-    setStatusMessage('正在启动语音对话...');
+    setStatusMessage('Starting voice conversation...');
 
-    // 模拟启动延迟，让用户看到加载状态
     setTimeout(() => {
       voice.startConversation();
       setIsStarting(false);
     }, 300);
   }, [voice]);
 
-  // 结束对话
-  const handleEndConversation = useCallback(() => {
+  // End conversation
+  const handleEndConversation = useCallback((): void => {
     voice.endConversation();
-    setStatusMessage('对话已结束');
+    setStatusMessage('Conversation ended');
   }, [voice]);
 
-  // 关闭错误提示
+  // Close error toast
   const handleCloseError = useCallback(
-    shouldRetry => {
+    (shouldRetry: boolean): void => {
       setError(null);
       if (shouldRetry) {
         handleStartConversation();
@@ -234,16 +265,16 @@ function VoicePanel({
     [handleStartConversation]
   );
 
-  // 播放响应（外部调用）
+  // Speak response (external call)
   const speakResponse = useCallback(
-    text => {
+    (text: string): void => {
       voice.speakResponse(text);
     },
     [voice]
   );
 
-  // 服务状态指示器
-  const ServiceIndicator = ({ name, ready, mode }) => (
+  // Service indicator component
+  const ServiceIndicator: React.FC<ServiceIndicatorProps> = ({ name, ready, mode }) => (
     <div
       className={`flex items-center gap-1 text-xs ${ready ? 'text-green-400' : 'text-yellow-400'}`}
     >
@@ -253,10 +284,10 @@ function VoicePanel({
     </div>
   );
 
-  // 音量级别条
-  const VolumeBar = () => (
+  // Volume bar component
+  const VolumeBar: React.FC = () => (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-400">音量</span>
+      <span className="text-xs text-gray-400">Volume</span>
       <div className="w-32 h-2 bg-gray-700 rounded overflow-hidden">
         <div
           className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-50"
@@ -268,7 +299,7 @@ function VoicePanel({
 
   return (
     <div className="relative">
-      {/* 错误提示 */}
+      {/* Error toast */}
       {error && (
         <ErrorToast
           errorType={error}
@@ -277,16 +308,18 @@ function VoicePanel({
         />
       )}
 
-      {/* 主控制面板 */}
+      {/* Main control panel */}
       <div className="bg-gray-800/90 rounded-xl p-4 backdrop-blur-sm border border-gray-700/50">
-        {/* 服务状态 */}
+        {/* Service status */}
         <div className="flex justify-between items-center mb-3">
           <div className="flex gap-4">
             <ServiceIndicator name="Whisper" ready={voice.sttReady} />
             <ServiceIndicator
               name="TTS"
               ready={hybridTTS.isSupported}
-              mode={ttsMode === 'kokoro' ? 'Kokoro' : ttsMode === 'browser' ? '浏览器' : '检测中'}
+              mode={
+                ttsMode === 'kokoro' ? 'Kokoro' : ttsMode === 'browser' ? 'Browser' : 'Detecting'
+              }
             />
           </div>
           <button
@@ -297,23 +330,23 @@ function VoicePanel({
           </button>
         </div>
 
-        {/* 波形动画 */}
+        {/* Waveform animation */}
         {showWaveform && voice.isListening && (
           <div className="mb-3 flex justify-center">
             <VoiceWaveform isListening={voice.isListening} />
           </div>
         )}
 
-        {/* 音量条 */}
+        {/* Volume bar */}
         {(voice.isListening || voice.isSpeaking) && (
           <div className="mb-3">
             <VolumeBar />
           </div>
         )}
 
-        {/* 当前状态 - 改进状态显示 */}
+        {/* Current status */}
         <div className="flex flex-col items-center justify-center gap-2 mb-3">
-          {/* 状态图标 */}
+          {/* Status icon */}
           <div
             className={`flex items-center gap-2 ${
               voice.isListening
@@ -336,7 +369,7 @@ function VoicePanel({
             <span className="text-sm font-medium">{statusMessage}</span>
           </div>
 
-          {/* 详细状态指示 */}
+          {/* Detailed status */}
           {voice.isConversationActive && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <span
@@ -349,45 +382,47 @@ function VoicePanel({
                 }`}
               >
                 {voice.currentSpeaker === 'user'
-                  ? '用户发言'
+                  ? 'User speaking'
                   : voice.currentSpeaker === 'assistant'
-                    ? 'Claude 回复'
-                    : '等待'}
+                    ? 'Claude responding'
+                    : 'Waiting'}
               </span>
             </div>
           )}
         </div>
 
-        {/* 中间转录文本 */}
+        {/* Interim transcript */}
         {voice.interimTranscript && (
           <div className="text-gray-300 text-sm mb-2 p-2 bg-gray-900/50 rounded">
             {voice.interimTranscript}
           </div>
         )}
 
-        {/* 用户转录文本 */}
+        {/* User transcript */}
         {voice.userTranscript && (
           <div className="text-white text-sm mb-2 p-2 bg-purple-900/30 rounded">
             {voice.userTranscript}
           </div>
         )}
 
-        {/* 命令执行反馈 */}
+        {/* Command feedback */}
         {commandFeedback && (
           <div className="mb-2 p-3 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-500/30 animate-fade-in">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-yellow-400" />
               <span className="text-sm text-yellow-300 font-medium">
-                命令执行: {commandFeedback.feedback}
+                Command: {commandFeedback.feedback}
               </span>
             </div>
-            <div className="text-xs text-gray-400 mt-1">识别: "{commandFeedback.matchedText}"</div>
+            <div className="text-xs text-gray-400 mt-1">
+              Detected: "{commandFeedback.matchedText}"
+            </div>
           </div>
         )}
 
-        {/* 控制按钮 */}
+        {/* Control buttons */}
         <div className="flex justify-center gap-4">
-          {/* 主按钮：开始/结束对话 */}
+          {/* Main button: Start/End conversation */}
           {!voice.isConversationActive ? (
             <button
               onClick={handleStartConversation}
@@ -399,7 +434,7 @@ function VoicePanel({
                     ? 'bg-purple-500 hover:bg-purple-600 hover:scale-105 text-white shadow-lg shadow-purple-500/30'
                     : 'bg-gray-600 text-gray-400 cursor-not-allowed'
               }`}
-              title="开始对话"
+              title="Start conversation"
             >
               {isStarting ? (
                 <Loader2 className="w-6 h-6 animate-spin" />
@@ -411,13 +446,13 @@ function VoicePanel({
             <button
               onClick={handleEndConversation}
               className="p-4 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg shadow-red-500/30"
-              title="结束对话"
+              title="End conversation"
             >
               <X className="w-6 h-6" />
             </button>
           )}
 
-          {/* 麦克风状态 */}
+          {/* Mic status */}
           <div
             className={`p-4 rounded-full transition-all duration-300 ${
               voice.isListening
@@ -432,7 +467,7 @@ function VoicePanel({
             )}
           </div>
 
-          {/* 播放状态 */}
+          {/* Speaker status */}
           <div
             className={`p-4 rounded-full transition-all duration-300 ${
               voice.isSpeaking
@@ -448,11 +483,11 @@ function VoicePanel({
           </div>
         </div>
 
-        {/* 设置面板 */}
+        {/* Settings panel */}
         {showSettings && (
           <div className="mt-4 p-3 bg-gray-900/50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-300">自动继续对话</span>
+              <span className="text-sm text-gray-300">Auto continue</span>
               <input
                 type="checkbox"
                 checked={autoContinue}
@@ -461,7 +496,7 @@ function VoicePanel({
               />
             </div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-300">允许打断</span>
+              <span className="text-sm text-gray-300">Allow interruption</span>
               <input
                 type="checkbox"
                 checked={interruptionEnabled}
@@ -470,7 +505,7 @@ function VoicePanel({
               />
             </div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-300">语音命令</span>
+              <span className="text-sm text-gray-300">Voice commands</span>
               <input
                 type="checkbox"
                 checked={commandEnabled}
@@ -479,7 +514,7 @@ function VoicePanel({
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-300">显示波形</span>
+              <span className="text-sm text-gray-300">Show waveform</span>
               <input
                 type="checkbox"
                 checked={showWaveform}
@@ -488,7 +523,7 @@ function VoicePanel({
               />
             </div>
 
-            {/* 语言选择 */}
+            {/* Language selector */}
             <div className="mt-3 pt-3 border-t border-gray-700">
               <LanguageSelector
                 currentLanguage={language}
@@ -498,7 +533,7 @@ function VoicePanel({
               />
             </div>
 
-            {/* TTS 定制设置 */}
+            {/* TTS settings */}
             <div className="mt-3 pt-3 border-t border-gray-700">
               <TTSSettings
                 speed={ttsSpeed}
@@ -515,22 +550,24 @@ function VoicePanel({
           </div>
         )}
       </div>
-
-      {/* 导出方法供外部使用 */}
-      {/* 通过 ref 或 callback 暴露 speakResponse */}
     </div>
   );
 }
 
-// 导出 speakResponse 供外部使用
-export function useVoicePanelRef() {
-  const speakResponseRef = React.useRef(null);
+// Export ref hook for external use
+interface VoicePanelRef {
+  setSpeakResponse: (fn: (text: string) => void) => void;
+  speak: (text: string) => void;
+}
 
-  const setSpeakResponse = useCallback(fn => {
+export function useVoicePanelRef(): VoicePanelRef {
+  const speakResponseRef = useRef<((text: string) => void) | null>(null);
+
+  const setSpeakResponse = useCallback((fn: (text: string) => void): void => {
     speakResponseRef.current = fn;
   }, []);
 
-  const speak = useCallback(text => {
+  const speak = useCallback((text: string): void => {
     if (speakResponseRef.current) {
       speakResponseRef.current(text);
     }

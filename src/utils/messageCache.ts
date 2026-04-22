@@ -1,18 +1,48 @@
-// src/utils/messageCache.js
+// src/utils/messageCache.ts
+//
+// IndexedDB 消息缓存
+// - 消息持久化存储
+// - 支持大量消息缓存
+// - 自动过期清理
 
 const DB_NAME = 'claude-voiceinter';
 const STORE_NAME = 'messages';
 const MAX_MESSAGES = 1000;
 
-async function openDB() {
+interface CachedMessage {
+  id?: number;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  sessionId?: string;
+}
+
+interface DBEventTarget extends EventTarget {
+  result: IDBDatabase;
+  error: Error | null;
+}
+
+interface IDBEvent extends Event {
+  target: DBEventTarget;
+}
+
+interface IDBRequestWithResult<T> extends IDBRequest {
+  result: T;
+}
+
+interface RequestEvent extends Event {
+  target: IDBRequestWithResult<IDBDatabase>;
+}
+
+async function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
 
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
+    request.onupgradeneeded = (event: Event) => {
+      const db = (event.target as IDBRequestWithResult<IDBDatabase>).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
       }
@@ -20,7 +50,7 @@ async function openDB() {
   });
 }
 
-export async function saveMessages(messages) {
+export async function saveMessages(messages: CachedMessage[]): Promise<boolean> {
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -44,13 +74,13 @@ export async function saveMessages(messages) {
         reject(tx.error);
       };
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('[messageCache] saveMessages error:', error);
     return false;
   }
 }
 
-export async function loadMessages() {
+export async function loadMessages(): Promise<CachedMessage[]> {
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -60,20 +90,20 @@ export async function loadMessages() {
       const request = store.getAll();
       request.onsuccess = () => {
         db.close();
-        resolve(request.result);
+        resolve(request.result as CachedMessage[]);
       };
       request.onerror = () => {
         db.close();
         reject(request.error);
       };
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('[messageCache] loadMessages error:', error);
     return [];
   }
 }
 
-export async function clearMessages() {
+export async function clearMessages(): Promise<boolean> {
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -90,13 +120,13 @@ export async function clearMessages() {
         reject(tx.error);
       };
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('[messageCache] clearMessages error:', error);
     return false;
   }
 }
 
-export async function getMessageCount() {
+export async function getMessageCount(): Promise<number> {
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -113,8 +143,18 @@ export async function getMessageCount() {
         reject(request.error);
       };
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('[messageCache] getMessageCount error:', error);
     return 0;
   }
 }
+
+export type { CachedMessage };
+
+export default {
+  saveMessages,
+  loadMessages,
+  clearMessages,
+  getMessageCount,
+  MAX_MESSAGES,
+};

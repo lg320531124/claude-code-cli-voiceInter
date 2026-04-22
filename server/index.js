@@ -17,7 +17,17 @@ import { randomUUID } from 'crypto';
 import { createInterface } from 'readline';
 import fs from 'fs/promises';
 import multer from 'multer';
+import logger from '../src/utils/logger.js';
+import {
+  sanitizeCommand,
+  validateCliCommand,
+  checkRateLimit,
+  cleanupRateLimits,
+} from './security.js';
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
+
+// Set context for server logs
+logger.setContext('Server');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, '..');
@@ -69,21 +79,59 @@ function heartbeat() {
   this.isAlive = true;
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', ws => {
   ws.isAlive = true;
   ws.on('pong', heartbeat);
 });
 
 const heartbeatCheck = setInterval(() => {
-  wss.clients.forEach((ws) => {
+  wss.clients.forEach(ws => {
     if (ws.isAlive === false) {
-      console.log('[INFO] Terminating dead connection');
+      logger.info('Terminating dead connection');
       return ws.terminate();
     }
     ws.isAlive = false;
     ws.ping();
   });
 }, HEARTBEAT_INTERVAL);
+
+// Periodic cleanup of rate limits
+setInterval(() => {
+  cleanupRateLimits();
+}, 60000);
+
+// ============================================
+// CLI COMMAND EXECUTION
+// ============================================
+
+function executeCliCommand(command, args = []) {
+  logger.info('Executing CLI command:', { command, args });
+
+  if (!claudeInstance || claudeInstance.killed) {
+    logger.warn('Claude not running for CLI command');
+    broadcastToClients({
+      type: 'cli-error',
+      command,
+      error: 'Claude instance not available',
+    });
+    return;
+  }
+
+  // Build command string for Claude
+  const fullCommand = [command, ...args].join(' ');
+
+  // Send to Claude stdin
+  try {
+    claudeInstance.stdin.write(fullCommand + '\n');
+  } catch (err) {
+    logger.error('Failed to send CLI command:', { error: err.message });
+    broadcastToClients({
+      type: 'cli-error',
+      command,
+      error: err.message,
+    });
+  }
+}
 
 // ============================================
 // PERSISTENT CLAUDE INSTANCE
@@ -99,94 +147,100 @@ let pendingCommand = null;
  */
 function startClaudeInstance() {
   if (claudeInstance && !claudeInstance.killed) {
-    console.log('[INFO] Claude instance already running');
+    logger.info('Claude instance already running');
     return;
   }
 
-  console.log('[INFO] Starting persistent Claude instance...');
-  console.log('[INFO] Claude path:', CLAUDE_PATH);
-  console.log('[INFO] Project:', PROJECT_PATH);
+  logger.info('Starting persistent Claude instance...');
+  logger.info('Claude path:', { path: CLAUDE_PATH });
+  logger.info('Project:', { path: PROJECT_PATH });
 
   // Use stream-json mode for persistent communication
-  claudeInstance = spawn(CLAUDE_PATH, [
-    '--print',
-    '--input-format', 'stream-json',
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--dangerously-skip-permissions'
-  ], {
-    cwd: PROJECT_PATH,
-    env: {
-      ...process.env,
-      HOME: process.env.HOME || os.homedir()
-    },
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
+  claudeInstance = spawn(
+    CLAUDE_PATH,
+    [
+      '--print',
+      '--input-format',
+      'stream-json',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--dangerously-skip-permissions',
+    ],
+    {
+      cwd: PROJECT_PATH,
+      env: {
+        ...process.env,
+        HOME: process.env.HOME || os.homedir(),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }
+  );
 
   // Create readline interface for parsing JSON lines
   const stdoutRL = createInterface({
     input: claudeInstance.stdout,
-    crlfDelay: Infinity
+    crlfDelay: Infinity,
   });
 
-  stdoutRL.on('line', (line) => {
+  stdoutRL.on('line', line => {
     if (!line.trim()) return;
 
-    console.log('[Claude] Output:', line.substring(0, 150));
+    logger.debug('Claude Output:', { line: line.substring(0, 150) });
 
     try {
       const msg = JSON.parse(line);
       handleClaudeMessage(msg);
     } catch (e) {
       // Not valid JSON, might be partial output
-      console.log('[Claude raw]', line.substring(0, 100));
+      logger.debug('Claude raw:', { line: line.substring(0, 100) });
       // Send as plain text to clients
       broadcastToClients({
         type: 'claude-output',
-        data: line
+        data: line,
       });
     }
   });
 
   // Handle stderr
-  claudeInstance.stderr.on('data', (data) => {
+  claudeInstance.stderr.on('data', data => {
     const text = data.toString();
-    console.log('[Claude stderr]', text.substring(0, 150));
+    logger.debug('Claude stderr:', { text: text.substring(0, 150) });
   });
 
   // Handle process exit
-  claudeInstance.on('close', (exitCode) => {
-    console.log('[Claude] Instance exited with code:', exitCode);
+  claudeInstance.on('close', exitCode => {
+    logger.info('Claude Instance exited:', { exitCode });
     claudeInstance = null;
     isClaudeReady = false;
 
     broadcastToClients({
       type: 'claude-disconnected',
-      exitCode
+      exitCode,
     });
 
     // Auto-restart after 2 seconds
     setTimeout(() => {
-      console.log('[INFO] Auto-restarting Claude instance...');
+      logger.info('Auto-restarting Claude instance...');
       startClaudeInstance();
     }, 2000);
   });
 
-  claudeInstance.on('error', (err) => {
-    console.error('[Claude] Error:', err.message);
+  claudeInstance.on('error', err => {
+    logger.error('Claude Error:', { error: err.message });
     broadcastToClients({
       type: 'error',
-      error: err.message
+      error: err.message,
     });
   });
 
   // Consider ready after a short delay (hooks take a moment to run)
   setTimeout(() => {
-    console.log('[INFO] Claude instance ready');
+    logger.info('Claude instance ready');
     isClaudeReady = true;
     broadcastToClients({
       type: 'claude-ready',
-      ready: true
+      ready: true,
     });
 
     // Send pending command if there is one
@@ -201,7 +255,7 @@ function startClaudeInstance() {
  * Handle a parsed JSON message from Claude
  */
 function handleClaudeMessage(msg) {
-  console.log('[Claude msg] type:', msg.type, 'subtype:', msg.subtype || '');
+  logger.debug('Claude msg:', { type: msg.type, subtype: msg.subtype || '' });
 
   // Handle content block updates (streaming)
   if (msg.type === 'content_block_start' || msg.type === 'content_block_delta') {
@@ -211,7 +265,7 @@ function handleClaudeMessage(msg) {
       if (text) {
         broadcastToClients({
           type: 'stream-delta',
-          content: text
+          content: text,
         });
       }
     }
@@ -224,7 +278,10 @@ function handleClaudeMessage(msg) {
     if (msg.message?.content) {
       const textBlocks = msg.message.content.filter(c => c.type === 'text');
       content = textBlocks.map(c => c.text).join('');
-      console.log('[Claude assistant] text blocks:', textBlocks.length, 'content length:', content.length);
+      logger.debug('Claude assistant text blocks:', {
+        count: textBlocks.length,
+        contentLength: content.length,
+      });
     } else if (msg.content) {
       content = typeof msg.content === 'string' ? msg.content : '';
     }
@@ -235,30 +292,32 @@ function handleClaudeMessage(msg) {
         type: 'token-usage',
         usage: {
           inputTokens: msg.message.usage.input_tokens || 0,
-          outputTokens: msg.message.usage.output_tokens || 0
-        }
+          outputTokens: msg.message.usage.output_tokens || 0,
+        },
       });
     }
 
     if (content.trim()) {
-      console.log('[Claude assistant] sending content:', content.substring(0, 100));
+      logger.debug('Claude assistant sending content:', {
+        preview: content.substring(0, 100),
+      });
       broadcastToClients({
         type: 'claude-response',
         data: {
           type: 'assistant',
-          content: content.trim()
-        }
+          content: content.trim(),
+        },
       });
 
       // Signal completion
       broadcastToClients({
-        type: 'complete'
+        type: 'complete',
       });
     }
   } else if (msg.type === 'result') {
     // Final result with complete usage info
     const content = msg.result || '';
-    console.log('[Claude result] content:', content.substring(0, 100));
+    logger.debug('Claude result:', { preview: content.substring(0, 100) });
 
     // Extract complete usage and cost info
     if (msg.usage || msg.total_cost_usd || msg.modelUsage) {
@@ -270,14 +329,18 @@ function handleClaudeMessage(msg) {
         cacheCreationTokens: msg.usage?.cache_creation_input_tokens || 0,
         durationMs: msg.duration_ms || 0,
         durationApiMs: msg.duration_api_ms || 0,
-        modelUsage: msg.modelUsage || {}
+        modelUsage: msg.modelUsage || {},
       };
 
-      console.log('[Claude result] cost:', usageData.totalCostUsd, 'input:', usageData.inputTokens, 'output:', usageData.outputTokens);
+      logger.debug('Claude result cost:', {
+        cost: usageData.totalCostUsd,
+        input: usageData.inputTokens,
+        output: usageData.outputTokens,
+      });
 
       broadcastToClients({
         type: 'token-usage-final',
-        usage: usageData
+        usage: usageData,
       });
     }
 
@@ -286,31 +349,31 @@ function handleClaudeMessage(msg) {
         type: 'claude-response',
         data: {
           type: 'assistant',
-          content: content.trim()
-        }
+          content: content.trim(),
+        },
       });
       broadcastToClients({
-        type: 'complete'
+        type: 'complete',
       });
     }
   } else if (msg.type === 'error') {
     broadcastToClients({
       type: 'error',
-      error: msg.error || msg.message || 'Unknown error'
+      error: msg.error || msg.message || 'Unknown error',
     });
   } else if (msg.type === 'system') {
     // System messages (hooks, etc) - usually not shown to user
-    console.log('[Claude system]', msg.subtype || '');
+    logger.debug('Claude system:', { subtype: msg.subtype || '' });
   } else if (msg.type === 'status') {
     broadcastToClients({
       type: 'status',
-      message: msg.status || ''
+      message: msg.status || '',
     });
   } else {
     // Unknown type - send raw
     broadcastToClients({
       type: 'claude-output',
-      data: msg
+      data: msg,
     });
   }
 }
@@ -320,7 +383,7 @@ function handleClaudeMessage(msg) {
  */
 function sendCommandToClaude(command) {
   if (!claudeInstance || claudeInstance.killed) {
-    console.log('[WARN] Claude not running, starting...');
+    logger.warn('Claude not running, starting...');
     pendingCommand = command;
     startClaudeInstance();
     return;
@@ -328,30 +391,31 @@ function sendCommandToClaude(command) {
 
   // Wait if not ready yet
   if (!isClaudeReady) {
-    console.log('[WARN] Claude not ready yet, queuing command...');
+    logger.warn('Claude not ready yet, queuing command...');
     pendingCommand = command;
     return;
   }
 
   // stream-json input format
-  const message = JSON.stringify({
-    type: 'user',
-    message: {
-      role: 'user',
-      content: command
-    }
-  }) + '\n';
+  const message =
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: command,
+      },
+    }) + '\n';
 
-  console.log('[Sending to Claude]', message.substring(0, 80));
+  logger.debug('Sending to Claude:', { message: message.substring(0, 80) });
 
   try {
     claudeInstance.stdin.write(message);
     pendingCommand = null;
   } catch (e) {
-    console.error('[ERROR] Failed to write to stdin:', e.message);
+    logger.error('Failed to write to stdin:', { error: e.message });
     broadcastToClients({
       type: 'error',
-      error: 'Failed to send message to Claude'
+      error: 'Failed to send message to Claude',
     });
   }
 }
@@ -373,33 +437,70 @@ function broadcastToClients(message) {
 // ============================================
 
 function handleChatConnection(ws) {
-  console.log('[INFO] Chat WebSocket connected');
+  logger.info('Chat WebSocket connected');
 
   // Send connection status
-  ws.send(JSON.stringify({
-    type: 'connected',
-    claudeReady: isClaudeReady
-  }));
+  ws.send(
+    JSON.stringify({
+      type: 'connected',
+      claudeReady: isClaudeReady,
+    })
+  );
 
-  ws.on('message', async (message) => {
+  ws.on('message', async message => {
     try {
       const data = JSON.parse(message);
-      console.log('[DEBUG] Received:', data.type);
+      logger.debug('Received:', { type: data.type });
+
+      // Rate limit check (per connection)
+      const clientId = ws.clientId || randomUUID();
+      ws.clientId = clientId;
+      const rateCheck = checkRateLimit(clientId, 50, 60000);
+      if (!rateCheck.allowed) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Rate limit exceeded' }));
+        return;
+      }
 
       if (data.type === 'claude-command') {
         const { command } = data;
 
-        console.log('[INFO] Command:', command);
+        // Security: sanitize command input
+        const sanitizedCommand = sanitizeCommand(command);
+        if (!sanitizedCommand) {
+          ws.send(JSON.stringify({ type: 'error', error: 'Invalid command format' }));
+          return;
+        }
+
+        logger.info('Command:', { command: sanitizedCommand.substring(0, 100) });
 
         // Notify all clients we're processing
         broadcastToClients({
           type: 'status',
-          message: 'Processing...'
+          message: 'Processing...',
         });
 
         // Send command to persistent Claude instance
-        sendCommandToClaude(command);
+        sendCommandToClaude(sanitizedCommand);
+      } else if (data.type === 'cli-command') {
+        const { command, args } = data;
 
+        // Security: validate CLI command
+        const validation = validateCliCommand(command, args);
+        if (!validation.valid) {
+          ws.send(JSON.stringify({ type: 'error', error: validation.error }));
+          return;
+        }
+
+        logger.info('CLI command:', { command, args });
+
+        // Notify processing
+        broadcastToClients({
+          type: 'status',
+          message: 'Processing...',
+        });
+
+        // Execute CLI command
+        executeCliCommand(validation.command, validation.args);
       } else if (data.type === 'new-session') {
         // Kill current instance and start fresh
         if (claudeInstance && !claudeInstance.killed) {
@@ -409,19 +510,20 @@ function handleChatConnection(ws) {
           pendingCommand = null;
         }
 
-        ws.send(JSON.stringify({
-          type: 'session-reset'
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'session-reset',
+          })
+        );
 
         // Start new instance
         setTimeout(() => startClaudeInstance(), 500);
-
       } else if (data.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
 
-      // ============================================
-      // SKILL MANAGEMENT
-      // ============================================
+        // ============================================
+        // SKILL MANAGEMENT
+        // ============================================
       } else if (data.type === 'list-skills') {
         try {
           const skillsDir = path.join(PROJECT_PATH, '.claude', 'skills');
@@ -436,7 +538,7 @@ function handleChatConnection(ws) {
                 skills.push({
                   name: file.replace('.md', ''),
                   path: skillPath,
-                  content: content.substring(0, 200) + (content.length > 200 ? '...' : '')
+                  content: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
                 });
               }
             }
@@ -444,18 +546,21 @@ function handleChatConnection(ws) {
             // Skills directory doesn't exist
           }
 
-          ws.send(JSON.stringify({
-            type: 'skills-list',
-            skills
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'skills-list',
+              skills,
+            })
+          );
         } catch (error) {
-          console.error('[ERROR] List skills:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to list skills'
-          }));
+          logger.error('List skills:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to list skills',
+            })
+          );
         }
-
       } else if (data.type === 'list-all-skills') {
         // List all installed skills from all plugins
         try {
@@ -489,7 +594,7 @@ function handleChatConnection(ws) {
                             allSkills.push({
                               name: skillDir,
                               source: `${dir}/${pluginName}`,
-                              type: 'skill'
+                              type: 'skill',
                             });
                           } catch (e) {}
                         }
@@ -506,7 +611,7 @@ function handleChatConnection(ws) {
                             allSkills.push({
                               name: skillDir,
                               source: `${dir}/${pluginName}`,
-                              type: 'skill'
+                              type: 'skill',
                             });
                           } catch (e) {}
                         }
@@ -533,7 +638,7 @@ function handleChatConnection(ws) {
                     allSkills.push({
                       name: skillDir,
                       source: marketplace,
-                      type: 'skill'
+                      type: 'skill',
                     });
                   } catch (e) {}
                 }
@@ -541,18 +646,21 @@ function handleChatConnection(ws) {
             }
           } catch (e) {}
 
-          ws.send(JSON.stringify({
-            type: 'all-skills-list',
-            skills: allSkills
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'all-skills-list',
+              skills: allSkills,
+            })
+          );
         } catch (error) {
-          console.error('[ERROR] List all skills:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to list all skills'
-          }));
+          logger.error('List all skills:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to list all skills',
+            })
+          );
         }
-
       } else if (data.type === 'create-skill') {
         try {
           const { name, content } = data;
@@ -564,40 +672,46 @@ function handleChatConnection(ws) {
           const skillPath = path.join(skillsDir, `${name}.md`);
           await fs.writeFile(skillPath, content, 'utf-8');
 
-          console.log('[INFO] Skill created:', name);
+          logger.info('Skill created:', { name });
 
-          ws.send(JSON.stringify({
-            type: 'skill-created',
-            skill: { name, path: skillPath, content: content.substring(0, 200) }
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'skill-created',
+              skill: { name, path: skillPath, content: content.substring(0, 200) },
+            })
+          );
         } catch (error) {
-          console.error('[ERROR] Create skill:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to create skill'
-          }));
+          logger.error('Create skill:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to create skill',
+            })
+          );
         }
-
       } else if (data.type === 'delete-skill') {
         try {
           const { name } = data;
           const skillPath = path.join(PROJECT_PATH, '.claude', 'skills', `${name}.md`);
 
           await fs.unlink(skillPath);
-          console.log('[INFO] Skill deleted:', name);
+          logger.info('Skill deleted:', { name });
 
-          ws.send(JSON.stringify({
-            type: 'skill-deleted',
-            name
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'skill-deleted',
+              name,
+            })
+          );
         } catch (error) {
-          console.error('[ERROR] Delete skill:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to delete skill'
-          }));
+          logger.error('Delete skill:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to delete skill',
+            })
+          );
         }
-
       } else if (data.type === 'get-skill') {
         try {
           const { name } = data;
@@ -605,26 +719,30 @@ function handleChatConnection(ws) {
 
           const content = await fs.readFile(skillPath, 'utf-8');
 
-          ws.send(JSON.stringify({
-            type: 'skill-content',
-            name,
-            content
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'skill-content',
+              name,
+              content,
+            })
+          );
         } catch (error) {
-          console.error('[ERROR] Get skill:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to get skill'
-          }));
+          logger.error('Get skill:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to get skill',
+            })
+          );
         }
 
-      // ============================================
-      // CLI COMMAND EXECUTION
-      // ============================================
+        // ============================================
+        // CLI COMMAND EXECUTION
+        // ============================================
       } else if (data.type === 'cli-command') {
         try {
           const { command, args = [] } = data;
-          console.log('[CLI] Executing:', command, args.join(' '));
+          logger.info('CLI Executing:', { command, args: args.join(' ') });
 
           // Build full command
           const fullArgs = [command, ...args];
@@ -634,56 +752,60 @@ function handleChatConnection(ws) {
             cwd: PROJECT_PATH,
             env: {
               ...process.env,
-              HOME: process.env.HOME || '/Users/lg'
+              HOME: process.env.HOME || '/Users/lg',
             },
-            stdio: ['pipe', 'pipe', 'pipe']
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
 
           let output = '';
           let errorOutput = '';
 
-          cliProcess.stdout.on('data', (data) => {
+          cliProcess.stdout.on('data', data => {
             output += data.toString();
           });
 
-          cliProcess.stderr.on('data', (data) => {
+          cliProcess.stderr.on('data', data => {
             errorOutput += data.toString();
           });
 
-          cliProcess.on('close', (exitCode) => {
-            console.log('[CLI] Exit code:', exitCode);
+          cliProcess.on('close', exitCode => {
+            logger.info('CLI Exit code:', { exitCode });
 
-            ws.send(JSON.stringify({
-              type: 'cli-result',
-              command: command,
-              args: args,
-              exitCode,
-              output: output.trim(),
-              error: errorOutput.trim()
-            }));
+            ws.send(
+              JSON.stringify({
+                type: 'cli-result',
+                command: command,
+                args: args,
+                exitCode,
+                output: output.trim(),
+                error: errorOutput.trim(),
+              })
+            );
           });
 
-          cliProcess.on('error', (err) => {
-            console.error('[CLI] Error:', err.message);
-            ws.send(JSON.stringify({
-              type: 'cli-error',
-              command: command,
-              error: err.message
-            }));
+          cliProcess.on('error', err => {
+            logger.error('CLI Error:', { error: err.message });
+            ws.send(
+              JSON.stringify({
+                type: 'cli-error',
+                command: command,
+                error: err.message,
+              })
+            );
           });
-
         } catch (error) {
-          console.error('[ERROR] CLI command:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to execute CLI command'
-          }));
+          logger.error('CLI command:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to execute CLI command',
+            })
+          );
         }
-
       } else if (data.type === 'cli-command-with-input') {
         try {
           const { command, args = [], inputValue } = data;
-          console.log('[CLI] Executing with input:', command, args.join(' '));
+          logger.info('CLI Executing with input:', { command, args: args.join(' ') });
 
           // Build full command - add inputValue as argument if needed
           let fullArgs = [command, ...args];
@@ -696,82 +818,88 @@ function handleChatConnection(ws) {
             cwd: PROJECT_PATH,
             env: {
               ...process.env,
-              HOME: process.env.HOME || '/Users/lg'
+              HOME: process.env.HOME || '/Users/lg',
             },
-            stdio: ['pipe', 'pipe', 'pipe']
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
 
           let output = '';
           let errorOutput = '';
 
-          cliProcess.stdout.on('data', (data) => {
+          cliProcess.stdout.on('data', data => {
             output += data.toString();
           });
 
-          cliProcess.stderr.on('data', (data) => {
+          cliProcess.stderr.on('data', data => {
             errorOutput += data.toString();
           });
 
-          cliProcess.on('close', (exitCode) => {
-            console.log('[CLI] Exit code:', exitCode);
+          cliProcess.on('close', exitCode => {
+            logger.info('CLI Exit code:', { exitCode });
 
-            ws.send(JSON.stringify({
-              type: 'cli-result',
-              command: command,
-              args: fullArgs,
-              exitCode,
-              output: output.trim(),
-              error: errorOutput.trim()
-            }));
+            ws.send(
+              JSON.stringify({
+                type: 'cli-result',
+                command: command,
+                args: fullArgs,
+                exitCode,
+                output: output.trim(),
+                error: errorOutput.trim(),
+              })
+            );
           });
 
-          cliProcess.on('error', (err) => {
-            console.error('[CLI] Error:', err.message);
-            ws.send(JSON.stringify({
-              type: 'cli-error',
-              command: command,
-              error: err.message
-            }));
+          cliProcess.on('error', err => {
+            logger.error('CLI Error:', { error: err.message });
+            ws.send(
+              JSON.stringify({
+                type: 'cli-error',
+                command: command,
+                error: err.message,
+              })
+            );
           });
-
         } catch (error) {
-          console.error('[ERROR] CLI command:', error.message);
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Failed to execute CLI command'
-          }));
+          logger.error('CLI command:', { error: error.message });
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'Failed to execute CLI command',
+            })
+          );
         }
       }
-
     } catch (error) {
-      console.error('[ERROR] Chat error:', error.message);
-      ws.send(JSON.stringify({
-        type: 'error',
-        error: error.message
-      }));
+      logger.error('Chat error:', { error: error.message });
+      ws.send(
+        JSON.stringify({
+          type: 'error',
+          error: error.message,
+        })
+      );
     }
   });
 
   ws.on('close', () => {
-    console.log('[INFO] Chat client disconnected');
+    logger.info('Chat client disconnected');
   });
 
-  ws.on('error', (error) => {
-    console.error('[ERROR] WebSocket error:', error.message);
+  ws.on('error', error => {
+    logger.error('WebSocket error:', { error: error.message });
   });
 }
 
 // WebSocket connection handler
 wss.on('connection', (ws, request) => {
   const url = request.url;
-  console.log('[INFO] Client connected to:', url);
+  logger.info('Client connected to:', { url });
 
   const pathname = url.split('?')[0];
 
   if (pathname === '/ws/chat' || pathname === '/ws') {
     handleChatConnection(ws);
   } else {
-    console.log('[WARN] Unknown WebSocket path:', pathname);
+    logger.warn('Unknown WebSocket path:', { pathname });
     ws.close();
   }
 });
@@ -788,7 +916,7 @@ app.get('/api/voice/status', async (req, res) => {
   res.json({
     whisper: whisperOk ? 'running' : 'offline',
     kokoro: kokoroOk ? 'running' : 'offline',
-    ready: whisperOk && kokoroOk
+    ready: whisperOk && kokoroOk,
   });
 });
 
@@ -809,7 +937,7 @@ app.post('/api/voice/stt', upload.single('audio'), async (req, res) => {
 
     const response = await fetch('http://127.0.0.1:2022/inference', {
       method: 'POST',
-      body: formData
+      body: formData,
     });
 
     if (!response.ok) {
@@ -819,7 +947,7 @@ app.post('/api/voice/stt', upload.single('audio'), async (req, res) => {
     const result = await response.json();
     res.json({ success: true, text: result.text });
   } catch (error) {
-    console.error('[STT 错误]', error.message);
+    logger.error('STT 错误:', { error: error.message });
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -840,8 +968,8 @@ app.post('/api/voice/tts', express.json(), async (req, res) => {
         model: 'kokoro',
         input: text,
         voice,
-        speed
-      })
+        speed,
+      }),
     });
 
     if (!response.ok) {
@@ -852,7 +980,7 @@ app.post('/api/voice/tts', express.json(), async (req, res) => {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.send(Buffer.from(audioBuffer));
   } catch (error) {
-    console.error('[TTS 错误]', error.message);
+    logger.error('TTS 错误:', { error: error.message });
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -861,7 +989,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    claudeReady: isClaudeReady
+    claudeReady: isClaudeReady,
   });
 });
 
@@ -873,12 +1001,14 @@ app.get('/api/projects', async (req, res) => {
     let projects = [];
     try {
       const dirs = await fs.readdir(claudeProjectsPath);
-      projects = dirs.filter(dir => {
-        return !dir.startsWith('.') && dir.includes('-');
-      }).map(dir => ({
-        name: dir,
-        path: path.join(claudeProjectsPath, dir)
-      }));
+      projects = dirs
+        .filter(dir => {
+          return !dir.startsWith('.') && dir.includes('-');
+        })
+        .map(dir => ({
+          name: dir,
+          path: path.join(claudeProjectsPath, dir),
+        }));
     } catch (e) {
       // Projects directory doesn't exist yet
     }
@@ -901,12 +1031,15 @@ if (process.env.NODE_ENV === 'production') {
 // ============================================
 
 server.listen(PORT, HOST, () => {
+  // Startup banner - use console.log for user-facing messages
   console.log(`\n🚀 Claude Code CLI VoiceInter running at http://${HOST}:${PORT}`);
   console.log(`   WebSocket: ws://${HOST}:${PORT}/ws`);
   console.log(`   API: http://${HOST}:${PORT}/api`);
   console.log(`\n   Persistent Claude instance (stream-json mode)`);
   console.log(`   Claude path: ${CLAUDE_PATH}`);
   console.log('\nPress Ctrl+C to stop\n');
+
+  logger.info('Server started', { host: HOST, port: PORT });
 
   // Start Claude instance immediately
   startClaudeInstance();
@@ -917,11 +1050,11 @@ server.listen(PORT, HOST, () => {
 // ============================================
 
 process.on('SIGINT', () => {
-  console.log('\n[INFO] Shutting down...');
+  logger.info('Shutting down...');
 
   // Kill Claude instance
   if (claudeInstance && !claudeInstance.killed) {
-    console.log('[INFO] Stopping Claude instance...');
+    logger.info('Stopping Claude instance...');
     claudeInstance.kill();
   }
 
@@ -934,7 +1067,7 @@ process.on('SIGINT', () => {
   });
 
   server.close(() => {
-    console.log('[INFO] Server closed');
+    logger.info('Server closed');
     process.exit(0);
   });
 });

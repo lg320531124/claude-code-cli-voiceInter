@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
+import logger from '../utils/logger';
 import {
   Send,
   Sparkles,
@@ -22,17 +23,21 @@ import {
   Play,
   MemoryStick,
 } from 'lucide-react';
-import SkillManager from './SkillManager';
+
+// Lazy load modal components (only loaded when needed)
+const SkillManager = lazy(() => import('./SkillManager'));
+const TokenStats = lazy(() => import('./TokenStats'));
+const CommandSidebar = lazy(() => import('./CommandSidebar'));
+const ShortcutsHelp = lazy(() => import('./ShortcutsHelp'));
+const ExportPanel = lazy(() => import('./ExportPanel'));
+const ConversationReplay = lazy(() => import('./ConversationReplay'));
+const MemoryStats = lazy(() => import('./MemoryStats'));
+
+// Regular imports for always-visible components
 import CommandPalette from './CommandPalette';
-import TokenStats from './TokenStats';
-import CommandSidebar from './CommandSidebar';
-import ShortcutsHelp from './ShortcutsHelp';
 import VoicePanel, { useVoicePanelRef } from './VoicePanel';
-import ExportPanel from './ExportPanel';
 import ConversationList from './ConversationList';
-import ConversationReplay, { ReplayControl } from './ConversationReplay';
 import RealtimeSubtitles, { SubtitlesControl } from './RealtimeSubtitles';
-import MemoryStats, { MemoryStatsButton } from './MemoryStats';
 import { useHybridTTS } from '../hooks/useHybridTTS';
 import { shortcuts, shortcutActions } from '../config/shortcuts';
 import {
@@ -44,6 +49,9 @@ import {
   getConversation,
   updateConversation,
 } from '../utils/conversationManager';
+
+// Set context for Chat logs
+logger.setContext('Chat');
 
 function Chat() {
   const { isConnected, sendMessage, latestMessage } = useWebSocket();
@@ -66,7 +74,10 @@ function Chat() {
       const convs = loadConversations();
       const conv = convs.find(c => c.id === convId);
       if (conv && conv.messages) {
-        console.log('[Chat] Loaded messages from conversation:', conv.id, conv.messages.length);
+        logger.debug('Loaded messages from conversation:', {
+          id: conv.id,
+          count: conv.messages.length,
+        });
         return conv.messages.slice(-50);
       }
     }
@@ -75,11 +86,11 @@ function Chat() {
       const saved = localStorage.getItem('claude-chat-messages');
       if (saved) {
         const parsed = JSON.parse(saved);
-        console.log('[Chat] Loaded saved messages:', parsed.length);
+        logger.debug('Loaded saved messages:', { count: parsed.length });
         return parsed.slice(-50);
       }
     } catch (e) {
-      console.warn('[Chat] Failed to load saved messages:', e);
+      logger.warn('Failed to load saved messages:', { error: e });
     }
     return [];
   });
@@ -290,14 +301,14 @@ function Chat() {
       localStorage.setItem('claude-chat-messages', JSON.stringify(messages));
     } catch (e) {
       // localStorage might be full or disabled
-      console.warn('[Chat] Failed to save messages:', e);
+      logger.warn('Failed to save messages:', { error: e });
     }
   }, [messages]);
 
   useEffect(() => {
     if (!latestMessage) return;
 
-    console.log('[Chat] Received message:', latestMessage.type, latestMessage);
+    logger.debug('Received message:', { type: latestMessage.type, data: latestMessage });
 
     const {
       type,
@@ -350,7 +361,7 @@ function Chat() {
 
     // Handle final response
     if (type === 'claude-response' && data) {
-      console.log('[Chat] claude-response data:', data);
+      logger.debug('claude-response data:', { data });
       setIsProcessing(false);
       const content = data.content || '';
       if (content.trim()) {
@@ -358,10 +369,12 @@ function Chat() {
           const lastMsg = prev[prev.length - 1];
           // 防止重复，但允许更新（比如流式更新的内容）
           if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
-            console.log('[Chat] Skipping duplicate message');
+            logger.debug('Skipping duplicate message');
             return prev;
           }
-          console.log('[Chat] Adding assistant message:', content.substring(0, 50));
+          logger.debug('Adding assistant message:', {
+            preview: content.substring(0, 50),
+          });
           return [...prev, { role: 'assistant', content }];
         });
         // 更新字幕文本
@@ -656,12 +669,10 @@ function Chat() {
   };
 
   const handleVoiceClick = () => {
-    console.log(
-      '[Voice] Click - isSupported:',
-      voice.isSupported,
-      'isInitialized:',
-      voice.isInitialized
-    );
+    logger.debug('Voice click:', {
+      isSupported: voice.isSupported,
+      isInitialized: voice.isInitialized,
+    });
 
     // Check if voice is supported
     if (!voice.isSupported) {
@@ -720,13 +731,13 @@ function Chat() {
 
   // Handle assistant speech in conversation mode
   const handleConversationAssistantSpeech = text => {
-    console.log('[Conversation] Assistant said:', text.substring(0, 50));
+    logger.debug('Assistant said:', { preview: text.substring(0, 50) });
     setCurrentTtsText(text);
   };
 
   // Handle voice command execution
   const handleVoiceCommandExecute = (action, commandId) => {
-    console.log('[Chat] Voice command executed:', action, commandId);
+    logger.debug('Voice command executed:', { action, commandId });
     executeShortcutAction(action);
   };
 
@@ -825,7 +836,7 @@ function Chat() {
         break;
 
       default:
-        console.log('Unknown command:', command.action);
+        logger.warn('Unknown command:', { action: command.action });
         if (command.cli) {
           // Execute CLI command if provided
           const parts = command.cli.split(' ');
@@ -1036,7 +1047,7 @@ function Chat() {
         }
         break;
       default:
-        console.log('Unknown shortcut action:', action);
+        logger.warn('Unknown shortcut action:', { action });
     }
   };
 
@@ -1741,37 +1752,45 @@ Type \`/\` in the input to see all available CLI commands.
         </footer>
       </div>{' '}
       {/* 结束右侧聊天区域 */}
-      {/* Skill Manager Modal */}
-      <SkillManager isOpen={showSkillManager} onClose={() => setShowSkillManager(false)} />
-      {/* Token Stats Modal */}
-      <TokenStats
-        isOpen={showTokenStats}
-        onClose={() => setShowTokenStats(false)}
-        tokenUsage={tokenUsage}
-      />
-      {/* Export Panel */}
+      {/* Lazy-loaded Modal Components */}
+      <Suspense fallback={null}>
+        <SkillManager isOpen={showSkillManager} onClose={() => setShowSkillManager(false)} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <TokenStats
+          isOpen={showTokenStats}
+          onClose={() => setShowTokenStats(false)}
+          tokenUsage={tokenUsage}
+        />
+      </Suspense>
       {showExportPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <ExportPanel messages={messages} onClose={() => setShowExportPanel(false)} />
+          <Suspense fallback={<div className="text-white">Loading...</div>}>
+            <ExportPanel messages={messages} onClose={() => setShowExportPanel(false)} />
+          </Suspense>
         </div>
       )}
-      {/* Conversation Replay Panel */}
-      <ConversationReplay
-        messages={messages}
-        isOpen={showReplayPanel}
-        onClose={() => setShowReplayPanel(false)}
-      />
-      {/* Memory Stats Panel */}
-      <MemoryStats isOpen={showMemoryStats} onClose={() => setShowMemoryStats(false)} />
-      {/* Command Sidebar */}
-      <CommandSidebar
-        isOpen={showCommandSidebar}
-        onClose={() => setShowCommandSidebar(false)}
-        onCommandSelect={handleCommandSelect}
-      />
-      {/* Shortcuts Help Modal */}
-      <ShortcutsHelp isOpen={showShortcutsHelp} onClose={() => setShowShortcutsHelp(false)} />
-      {/* Realtime Subtitles */}
+      <Suspense fallback={null}>
+        <ConversationReplay
+          messages={messages}
+          isOpen={showReplayPanel}
+          onClose={() => setShowReplayPanel(false)}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <MemoryStats isOpen={showMemoryStats} onClose={() => setShowMemoryStats(false)} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <CommandSidebar
+          isOpen={showCommandSidebar}
+          onClose={() => setShowCommandSidebar(false)}
+          onCommandSelect={handleCommandSelect}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ShortcutsHelp isOpen={showShortcutsHelp} onClose={() => setShowShortcutsHelp(false)} />
+      </Suspense>
+      {/* Realtime Subtitles - not lazy (always visible when enabled) */}
       <RealtimeSubtitles
         sttText={currentSttText}
         ttsText={currentTtsText}

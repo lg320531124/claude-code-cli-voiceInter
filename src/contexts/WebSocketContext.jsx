@@ -1,4 +1,16 @@
-import React, { createContext, useContext, useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+} from 'react';
+import logger from '../utils/logger';
+
+// Set context for WebSocket logs
+logger.setContext('WS');
 
 const WebSocketContext = createContext(null);
 
@@ -45,11 +57,11 @@ function useWebSocketProvider() {
   const updateConnectionQuality = useCallback(() => {
     if (pingLatenciesRef.current.length === 0) return;
 
-    const avgLatency = pingLatenciesRef.current.reduce((a, b) => a + b, 0) / pingLatenciesRef.current.length;
+    const avgLatency =
+      pingLatenciesRef.current.reduce((a, b) => a + b, 0) / pingLatenciesRef.current.length;
 
-    const quality = avgLatency < 50 ? '优秀' :
-                    avgLatency < 100 ? '良好' :
-                    avgLatency < 200 ? '一般' : '较差';
+    const quality =
+      avgLatency < 50 ? '优秀' : avgLatency < 100 ? '良好' : avgLatency < 200 ? '一般' : '较差';
     setConnectionQuality(quality);
   }, []);
 
@@ -57,7 +69,7 @@ function useWebSocketProvider() {
   const reconnect = useCallback(() => {
     reconnectAttemptsRef.current++;
     if (reconnectAttemptsRef.current > maxReconnectAttempts) {
-      console.log('[WS] Max reconnect attempts reached');
+      logger.warn('Max reconnect attempts reached');
       setConnectionQuality('离线');
       return;
     }
@@ -67,7 +79,7 @@ function useWebSocketProvider() {
       30000 // 最大30秒
     );
 
-    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+    logger.info(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
 
     reconnectTimeoutRef.current = setTimeout(() => {
       connect();
@@ -99,13 +111,13 @@ function useWebSocketProvider() {
   const connect = useCallback(() => {
     try {
       const wsUrl = buildWebSocketUrl();
-      console.log('[WS] Connecting to:', wsUrl);
+      logger.debug('Connecting to:', { wsUrl });
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[WS] Connected');
+        logger.info('Connected');
         setIsConnected(true);
         reconnectAttemptsRef.current = 0; // Reset reconnect attempts
         // Clear reconnect timeout
@@ -115,7 +127,7 @@ function useWebSocketProvider() {
         }
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = event => {
         try {
           const data = JSON.parse(event.data);
 
@@ -131,18 +143,18 @@ function useWebSocketProvider() {
             return;
           }
 
-          console.log('[WS] Received:', data.type);
+          logger.debug('Received:', { type: data.type });
 
           // Add to queue and process
           messageQueueRef.current.push(data);
           processQueue();
         } catch (error) {
-          console.error('[WS] Parse error:', error);
+          logger.error('Parse error:', { error });
         }
       };
 
       ws.onclose = () => {
-        console.log('[WS] Disconnected');
+        logger.info('Disconnected');
         setIsConnected(false);
         setConnectionQuality('离线');
         wsRef.current = null;
@@ -151,22 +163,21 @@ function useWebSocketProvider() {
         reconnect();
       };
 
-      ws.onerror = (error) => {
-        console.error('[WS] Error:', error);
+      ws.onerror = error => {
+        logger.error('WebSocket error:', { error });
       };
-
     } catch (error) {
-      console.error('[WS] Connection error:', error);
+      logger.error('Connection error:', { error });
       reconnect();
     }
   }, [reconnect, updateConnectionQuality]);
 
   // Send message
-  const sendMessage = (message) => {
+  const sendMessage = message => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     } else {
-      console.warn('[WS] Not connected, state:', wsRef.current?.readyState);
+      logger.warn('Not connected', { state: wsRef.current?.readyState });
     }
   };
 
@@ -195,13 +206,16 @@ function useWebSocketProvider() {
     };
   }, []);
 
-  const value = useMemo(() => ({
-    ws: wsRef.current,
-    isConnected,
-    connectionQuality,
-    sendMessage,
-    latestMessage
-  }), [isConnected, connectionQuality, latestMessage]);
+  const value = useMemo(
+    () => ({
+      ws: wsRef.current,
+      isConnected,
+      connectionQuality,
+      sendMessage,
+      latestMessage,
+    }),
+    [isConnected, connectionQuality, latestMessage]
+  );
 
   return value;
 }
@@ -212,11 +226,7 @@ function useWebSocketProvider() {
 export function WebSocketProvider({ children }) {
   const wsData = useWebSocketProvider();
 
-  return (
-    <WebSocketContext.Provider value={wsData}>
-      {children}
-    </WebSocketContext.Provider>
-  );
+  return <WebSocketContext.Provider value={wsData}>{children}</WebSocketContext.Provider>;
 }
 
 /**

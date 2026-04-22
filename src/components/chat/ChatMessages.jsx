@@ -1,39 +1,11 @@
 // src/components/chat/ChatMessages.jsx
-// Messages container component - extracted from Chat.jsx
+//
+// Messages container - Message list rendering, empty state
 
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { Sparkles } from 'lucide-react';
-import MessageBubble from './MessageBubble';
 
-function ChatMessages({
-  messages,
-  isProcessing,
-  isSending,
-  onSpeak,
-  ttsSpeaking,
-  formatContent,
-  onSendQuickAction
-}) {
-  const messagesEndRef = useRef(null);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const renderMessage = (msg, index) => (
-    <MessageBubble
-      key={index}
-      message={msg}
-      index={index}
-      messagesLength={messages.length}
-      isProcessing={isProcessing}
-      isSending={isSending}
-      onSpeak={onSpeak}
-      ttsSpeaking={ttsSpeaking}
-      formatContent={formatContent}
-    />
-  );
-
+function ChatMessages({ messages, isProcessing, isSending, messagesEndRef, renderMessage, onQuickAction }) {
   return (
     <main className="relative flex-1 overflow-y-auto px-6 py-4">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -43,24 +15,13 @@ function ChatMessages({
             <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-xl border border-white/10 flex items-center justify-center mb-6 shadow-xl">
               <Sparkles className="w-10 h-10 text-purple-400" />
             </div>
-
-            <h2 className="text-2xl font-medium text-white mb-3">
-              How can I help you today?
-            </h2>
-
-            <p className="text-white/50 max-w-md">
-              Type a message or click the microphone to speak.
-              I'll remember our conversation context.
-            </p>
-
+            <h2 className="text-2xl font-medium text-white mb-3">How can I help you today?</h2>
+            <p className="text-white/50 max-w-md">Type a message or click the microphone to speak. I'll remember our conversation context.</p>
+            
             {/* Quick action suggestions */}
             <div className="flex gap-3 mt-8">
-              {['What can you do?', 'Explain this code', 'Help me debug'].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => onSendQuickAction(suggestion)}
-                  className="px-4 py-2 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 text-sm text-white/70 hover:bg-white/20 hover:text-white transition-all"
-                >
+              {['What can you do?', 'Explain this code', 'Help me debug'].map(suggestion => (
+                <button key={suggestion} onClick={() => onQuickAction?.(suggestion)} className="px-4 py-2 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 text-sm text-white/70 hover:bg-white/20 hover:text-white transition-all">
                   {suggestion}
                 </button>
               ))}
@@ -69,9 +30,9 @@ function ChatMessages({
         )}
 
         {/* Messages */}
-        {messages.map(renderMessage)}
+        {messages.map((msg, idx) => renderMessage(msg, idx))}
 
-        {/* Invisible scroll anchor */}
+        {/* Scroll anchor */}
         <div ref={messagesEndRef} className="h-4" />
       </div>
     </main>

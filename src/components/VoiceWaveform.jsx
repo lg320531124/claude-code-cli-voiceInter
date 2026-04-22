@@ -1,6 +1,9 @@
 // src/components/VoiceWaveform.jsx
 
 import React, { useRef, useEffect } from 'react';
+import logger from '../utils/logger';
+
+logger.setContext('VoiceWaveform');
 
 function VoiceWaveform({ isListening }) {
   const canvasRef = useRef(null);
@@ -33,45 +36,48 @@ function VoiceWaveform({ isListening }) {
     const ctx = canvas.getContext('2d');
 
     // 连接音频流
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-      streamRef.current = stream;
-      audioContextRef.current = new AudioContext();
-      const source = audioContextRef.current.createMediaStreamSource(stream);
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 256;
-      source.connect(analyserRef.current);
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then(stream => {
+        streamRef.current = stream;
+        audioContextRef.current = new AudioContext();
+        const source = audioContextRef.current.createMediaStreamSource(stream);
+        analyserRef.current = audioContextRef.current.createAnalyser();
+        analyserRef.current.fftSize = 256;
+        source.connect(analyserRef.current);
 
-      const bufferLength = analyserRef.current.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+        const bufferLength = analyserRef.current.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
 
-      const draw = () => {
-        animationRef.current = requestAnimationFrame(draw);
-        analyserRef.current.getByteFrequencyData(dataArray);
+        const draw = () => {
+          animationRef.current = requestAnimationFrame(draw);
+          analyserRef.current.getByteFrequencyData(dataArray);
 
-        ctx.fillStyle = 'rgba(139, 92, 246, 0.1)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = 'rgba(139, 92, 246, 0.1)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const barWidth = (canvas.width / bufferLength) * 2.5;
-        let x = 0;
+          const barWidth = (canvas.width / bufferLength) * 2.5;
+          let x = 0;
 
-        for (let i = 0; i < bufferLength; i++) {
-          const barHeight = (dataArray[i] / 255) * canvas.height;
+          for (let i = 0; i < bufferLength; i++) {
+            const barHeight = (dataArray[i] / 255) * canvas.height;
 
-          const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
-          gradient.addColorStop(0, '#8b5cf6');
-          gradient.addColorStop(1, '#ec4899');
+            const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
+            gradient.addColorStop(0, '#8b5cf6');
+            gradient.addColorStop(1, '#ec4899');
 
-          ctx.fillStyle = gradient;
-          ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
 
-          x += barWidth + 1;
-        }
-      };
+            x += barWidth + 1;
+          }
+        };
 
-      draw();
-    }).catch(err => {
-      console.error('[VoiceWaveform] 无法获取音频流:', err);
-    });
+        draw();
+      })
+      .catch(err => {
+        logger.error('无法获取音频流:', { error: err.message });
+      });
 
     return () => {
       if (animationRef.current) {
@@ -89,14 +95,7 @@ function VoiceWaveform({ isListening }) {
     };
   }, [isListening]);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      width={200}
-      height={50}
-      className="rounded-xl bg-purple-500/10"
-    />
-  );
+  return <canvas ref={canvasRef} width={200} height={50} className="rounded-xl bg-purple-500/10" />;
 }
 
 export default VoiceWaveform;

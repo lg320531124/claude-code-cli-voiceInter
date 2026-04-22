@@ -3,6 +3,9 @@
 
 import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import logger from '../utils/logger';
+
+logger.setContext('ErrorBoundary');
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -15,7 +18,7 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('[ErrorBoundary]', error, errorInfo);
+    logger.error('Component error:', { error: error.message, stack: errorInfo.componentStack });
     this.setState({ errorInfo });
   }
 
@@ -35,9 +38,7 @@ class ErrorBoundary extends React.Component {
           <div className="text-center p-8 max-w-md">
             <AlertTriangle className="w-16 h-16 text-red-500 mb-4 mx-auto" />
             <h2 className="text-xl text-white mb-2">出现错误</h2>
-            <p className="text-gray-400 mb-4 text-sm">
-              {this.state.error?.message || '未知错误'}
-            </p>
+            <p className="text-gray-400 mb-4 text-sm">{this.state.error?.message || '未知错误'}</p>
             {this.props.showDetails && this.state.errorInfo && (
               <pre className="bg-black/30 p-4 rounded-lg text-xs text-gray-300 overflow-auto max-h-40 mb-4">
                 {this.state.errorInfo.componentStack}

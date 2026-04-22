@@ -1,4 +1,4 @@
-// src/hooks/useHybridTTS.js
+// src/hooks/useHybridTTS.ts
 //
 // 混合 TTS Hook - 自动选择最佳 TTS 服务
 // - 优先使用 Kokoro (本地服务，高质量)
@@ -11,22 +11,76 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { getErrorInfo } from '../utils/voiceErrors';
 import { getCachedAudio, cacheAudio, clearAllCache, getCacheStats } from '../utils/ttsCache';
 
+interface BrowserTTSOptions {
+  language?: string;
+  rate?: number;
+  pitch?: number;
+  onEnd?: () => void;
+  onError?: (type: string, error: unknown) => void;
+}
+
+interface BrowserTTSResult {
+  isSpeaking: boolean;
+  voices: SpeechSynthesisVoice[];
+  selectedVoice: SpeechSynthesisVoice | null;
+  setSelectedVoice: (voice: SpeechSynthesisVoice | null) => void;
+  speak: (text: string) => void;
+  stop: () => void;
+  isSupported: boolean;
+}
+
+interface HybridTTSOptions {
+  voice?: string;
+  speed?: number;
+  language?: string;
+  kokoroEndpoint?: string;
+  onModeChange?: (mode: 'kokoro' | 'browser' | null) => void;
+  onEnd?: () => void;
+  onError?: (type: string, error: unknown) => void;
+  preferKokoro?: boolean;
+  enableCache?: boolean;
+}
+
+interface HybridTTSResult {
+  isSpeaking: boolean;
+  currentMode: 'kokoro' | 'browser' | null;
+  kokoroReady: boolean | null;
+  browserReady: boolean | null;
+  voices: SpeechSynthesisVoice[];
+  selectedVoice: SpeechSynthesisVoice | null;
+  setSelectedVoice: (voice: SpeechSynthesisVoice | null) => void;
+  speak: (text: string) => Promise<void>;
+  stop: () => void;
+  switchMode: (mode: 'kokoro' | 'browser') => void;
+  isSupported: boolean;
+  clearCache: () => Promise<boolean>;
+  getCacheStats: () => Promise<{
+    count: number;
+    totalSize: number;
+    memoryCacheCount: number;
+    oldestTimestamp: number | null;
+  }>;
+  enableCache: boolean;
+}
+
+type TTSMode = 'kokoro' | 'browser' | null;
+
 /**
  * 浏览器原生 TTS Hook (Fallback)
  * 使用 Web Speech API SpeechSynthesis
  */
-export function useBrowserTTS(options = {}) {
+export function useBrowserTTS(options: BrowserTTSOptions = {}): BrowserTTSResult {
   const {
     language = 'zh-CN',
     rate = 1.0,
     pitch = 1.0,
     onEnd,
-    onError
+    onError,
   } = options;
 
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [voices, setVoices] = useState([]);
-  const [selectedVoice, setSelectedVoice] = useState(null);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   // 获取可用声音列表
   useEffect(() => {
@@ -35,14 +89,14 @@ export function useBrowserTTS(options = {}) {
       setVoices(availableVoices);
 
       // 选择中文声音（优先）
-      const chineseVoice = availableVoices.find(v =>
-        v.lang.includes('zh') || v.lang.includes('Chinese')
+      const chineseVoice = availableVoices.find(
+        v => v.lang.includes('zh') || v.lang.includes('Chinese')
       );
       if (chineseVoice) {
         setSelectedVoice(chineseVoice);
       } else {
         // 使用默认声音
-        setSelectedVoice(availableVoices[0]);
+        setSelectedVoice(availableVoices[0] || null);
       }
     };
 
@@ -58,38 +112,41 @@ export function useBrowserTTS(options = {}) {
   }, [language]);
 
   // 播放文本
-  const speak = useCallback((text) => {
-    if (!text || !text.trim()) return;
+  const speak = useCallback(
+    (text: string) => {
+      if (!text || !text.trim()) return;
 
-    // 停止当前播放
-    stop();
+      // 停止当前播放
+      stop();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language;
-    utterance.rate = rate;
-    utterance.pitch = pitch;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = language;
+      utterance.rate = rate;
+      utterance.pitch = pitch;
 
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-    }
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
 
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-    };
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+      };
 
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      onEnd?.();
-    };
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        onEnd?.();
+      };
 
-    utterance.onerror = (event) => {
-      console.error('[BrowserTTS] 错误:', event.error);
-      setIsSpeaking(false);
-      onError?.('tts-error', event.error);
-    };
+      utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+        console.error('[BrowserTTS] 错误:', event.error);
+        setIsSpeaking(false);
+        onError?.('tts-error', event.error);
+      };
 
-    speechSynthesis.speak(utterance);
-  }, [language, rate, pitch, selectedVoice, onEnd, onError]);
+      speechSynthesis.speak(utterance);
+    },
+    [language, rate, pitch, selectedVoice, onEnd, onError]
+  );
 
   // 停止播放
   const stop = useCallback(() => {
@@ -111,7 +168,7 @@ export function useBrowserTTS(options = {}) {
     setSelectedVoice,
     speak,
     stop,
-    isSupported: typeof speechSynthesis !== 'undefined'
+    isSupported: typeof speechSynthesis !== 'undefined',
   };
 }
 
@@ -121,7 +178,7 @@ export function useBrowserTTS(options = {}) {
  * - Kokoro 可用时使用本地服务
  * - Kokoro 不可用时 fallback 到浏览器 SpeechSynthesis
  */
-export function useHybridTTS(options = {}) {
+export function useHybridTTS(options: HybridTTSOptions = {}): HybridTTSResult {
   const {
     voice = 'af_sky',
     speed = 1.0,
@@ -130,17 +187,16 @@ export function useHybridTTS(options = {}) {
     onModeChange,
     onEnd,
     onError,
-    preferKokoro = true,  // 优先使用 Kokoro
-    enableCache = true    // 启用缓存
+    preferKokoro = true, // 优先使用 Kokoro
+    enableCache = true, // 启用缓存
   } = options;
 
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [currentMode, setCurrentMode] = useState(null); // 'kokoro' | 'browser' | null
-  const [kokoroReady, setKokoroReady] = useState(null);
-  const [browserReady, setBrowserReady] = useState(null);
+  const [currentMode, setCurrentMode] = useState<TTSMode>(null); // 'kokoro' | 'browser' | null
+  const [kokoroReady, setKokoroReady] = useState<boolean | null>(null);
+  const [browserReady, setBrowserReady] = useState<boolean | null>(null);
 
-  const kokoroAudioRef = useRef(null);
-  const browserTTSRef = useRef(null);
+  const kokoroAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // 浏览器 TTS hook
   const browserTTS = useBrowserTTS({
@@ -150,10 +206,10 @@ export function useHybridTTS(options = {}) {
       setIsSpeaking(false);
       onEnd?.();
     },
-    onError: (type, error) => {
+    onError: (type: string, error: unknown) => {
       setIsSpeaking(false);
       onError?.(type, error);
-    }
+    },
   });
 
   // 检查 Kokoro 服务状态
@@ -181,7 +237,7 @@ export function useHybridTTS(options = {}) {
 
   // 确定当前使用的 TTS 模式
   useEffect(() => {
-    let mode = null;
+    let mode: TTSMode = null;
 
     if (preferKokoro && kokoroReady) {
       mode = 'kokoro';
@@ -196,7 +252,7 @@ export function useHybridTTS(options = {}) {
   }, [kokoroReady, browserReady, preferKokoro, currentMode, onModeChange]);
 
   // 使用 Kokoro 播放 (支持缓存)
-  const speakWithKokoro = async (text) => {
+  const speakWithKokoro = async (text: string): Promise<void> => {
     try {
       setIsSpeaking(true);
 
@@ -231,7 +287,7 @@ export function useHybridTTS(options = {}) {
       const response = await fetch(kokoroEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice, speed })
+        body: JSON.stringify({ text, voice, speed }),
       });
 
       if (!response.ok) {
@@ -264,8 +320,7 @@ export function useHybridTTS(options = {}) {
       };
 
       await kokoroAudioRef.current.play();
-
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[KokoroTTS] 播放失败:', err);
       setIsSpeaking(false);
 
@@ -276,32 +331,36 @@ export function useHybridTTS(options = {}) {
         onModeChange?.('browser');
         browserTTS.speak(text);
       } else {
-        onError?.('tts-error', err.message);
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        onError?.('tts-error', errorMessage);
       }
     }
   };
 
   // 使用浏览器 TTS 播放
-  const speakWithBrowser = (text) => {
+  const speakWithBrowser = (text: string): void => {
     browserTTS.speak(text);
   };
 
   // 智能播放
-  const speak = useCallback(async (text) => {
-    if (!text || !text.trim()) return;
+  const speak = useCallback(
+    async (text: string): Promise<void> => {
+      if (!text || !text.trim()) return;
 
-    // 停止当前播放
-    stop();
+      // 停止当前播放
+      stop();
 
-    // 根据当前模式选择 TTS 后端
-    if (preferKokoro && kokoroReady) {
-      await speakWithKokoro(text);
-    } else if (browserReady) {
-      speakWithBrowser(text);
-    } else {
-      onError?.('tts-unavailable', '无可用 TTS 服务');
-    }
-  }, [preferKokoro, kokoroReady, browserReady, voice, speed, language]);
+      // 根据当前模式选择 TTS 后端
+      if (preferKokoro && kokoroReady) {
+        await speakWithKokoro(text);
+      } else if (browserReady) {
+        speakWithBrowser(text);
+      } else {
+        onError?.('tts-unavailable', '无可用 TTS 服务');
+      }
+    },
+    [preferKokoro, kokoroReady, browserReady, voice, speed, language]
+  );
 
   // 停止播放
   const stop = useCallback(() => {
@@ -327,15 +386,18 @@ export function useHybridTTS(options = {}) {
   }, [stop]);
 
   // 切换到指定模式
-  const switchMode = useCallback((mode) => {
-    if (mode === 'kokoro' && kokoroReady) {
-      setCurrentMode('kokoro');
-      onModeChange?.('kokoro');
-    } else if (mode === 'browser' && browserReady) {
-      setCurrentMode('browser');
-      onModeChange?.('browser');
-    }
-  }, [kokoroReady, browserReady, onModeChange]);
+  const switchMode = useCallback(
+    (mode: 'kokoro' | 'browser'): void => {
+      if (mode === 'kokoro' && kokoroReady) {
+        setCurrentMode('kokoro');
+        onModeChange?.('kokoro');
+      } else if (mode === 'browser' && browserReady) {
+        setCurrentMode('browser');
+        onModeChange?.('browser');
+      }
+    },
+    [kokoroReady, browserReady, onModeChange]
+  );
 
   return {
     isSpeaking,
@@ -348,12 +410,14 @@ export function useHybridTTS(options = {}) {
     speak,
     stop,
     switchMode,
-    isSupported: kokoroReady || browserReady,
+    isSupported: Boolean(kokoroReady || browserReady),
     // 缓存相关
     clearCache: clearAllCache,
     getCacheStats,
-    enableCache
+    enableCache,
   };
 }
+
+export type { BrowserTTSOptions, BrowserTTSResult, HybridTTSOptions, HybridTTSResult, TTSMode };
 
 export default useHybridTTS;
