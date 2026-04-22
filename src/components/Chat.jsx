@@ -8,6 +8,7 @@ import TokenStats from './TokenStats';
 import CommandSidebar from './CommandSidebar';
 import ShortcutsHelp from './ShortcutsHelp';
 import VoicePanel, { useVoicePanelRef } from './VoicePanel';
+import { useHybridTTS } from '../hooks/useHybridTTS';
 import { shortcuts, shortcutActions } from '../config/shortcuts';
 
 function Chat() {
@@ -83,6 +84,23 @@ function Chat() {
     onSpeechResult: handleVoiceResult,
     autoSpeakResponse: true
   });
+
+  // History message TTS (separate from conversation TTS)
+  const historyTTS = useHybridTTS({
+    voice: 'af_sky',
+    speed: 1.0,
+    language: 'zh-CN',
+    preferKokoro: true
+  });
+
+  // Speak message content
+  const handleSpeakMessage = useCallback((content) => {
+    if (!content || !content.trim()) return;
+    // Stop any current TTS
+    historyTTS.stop();
+    // Speak the message
+    historyTTS.speak(content);
+  }, [historyTTS]);
 
   // Store original input when voice starts (only once)
   useEffect(() => {
@@ -983,6 +1001,24 @@ Type \`/\` in the input to see all available CLI commands.
           <div className="text-[15px] whitespace-pre-wrap">
             {formatContent(msg.content)}
           </div>
+
+          {/* Message actions - speak button */}
+          {!isError && msg.content && msg.content.trim() && (
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => handleSpeakMessage(msg.content)}
+                disabled={historyTTS.isSpeaking}
+                className={`p-1 rounded transition-all ${
+                  historyTTS.isSpeaking
+                    ? 'text-purple-400 animate-pulse'
+                    : 'text-white/30 hover:text-white/60 hover:bg-white/10'
+                }`}
+                title={historyTTS.isSpeaking ? '正在朗读...' : '点击朗读'}
+              >
+                <Volume2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
           {/* Typing indicator for last assistant message if processing */}
           {isLast && !isUser && !isError && isProcessing && (
