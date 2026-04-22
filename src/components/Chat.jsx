@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
-import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio, Download } from 'lucide-react';
+import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio, Download, Menu, PanelLeft } from 'lucide-react';
 import SkillManager from './SkillManager';
 import CommandPalette from './CommandPalette';
 import TokenStats from './TokenStats';
@@ -9,14 +9,45 @@ import CommandSidebar from './CommandSidebar';
 import ShortcutsHelp from './ShortcutsHelp';
 import VoicePanel, { useVoicePanelRef } from './VoicePanel';
 import ExportPanel from './ExportPanel';
+import ConversationList from './ConversationList';
 import { useHybridTTS } from '../hooks/useHybridTTS';
 import { shortcuts, shortcutActions } from '../config/shortcuts';
+import {
+  loadConversations,
+  saveConversations,
+  getActiveConversationId,
+  setActiveConversationId,
+  createConversation,
+  getConversation,
+  updateConversation
+} from '../utils/conversationManager';
 
 function Chat() {
   const { isConnected, sendMessage, latestMessage } = useWebSocket();
 
+  // 对话管理状态
+  const [conversations, setConversations] = useState(() => loadConversations());
+  const [activeConversationId, setActiveConversationId] = useState(() => {
+    const saved = getActiveConversationId();
+    if (saved) return saved;
+    // 如果没有保存的活动对话，创建一个新的
+    return null;
+  });
+  const [showConversationList, setShowConversationList] = useState(true);
+
+  // 当前对话的消息
   const [messages, setMessages] = useState(() => {
-    // Load messages from localStorage on init
+    // 从活动对话加载消息
+    const convId = getActiveConversationId();
+    if (convId) {
+      const convs = loadConversations();
+      const conv = convs.find(c => c.id === convId);
+      if (conv && conv.messages) {
+        console.log('[Chat] Loaded messages from conversation:', conv.id, conv.messages.length);
+        return conv.messages.slice(-50);
+      }
+    }
+    // 尝试从旧格式加载
     try {
       const saved = localStorage.getItem('claude-chat-messages');
       if (saved) {
@@ -37,6 +68,55 @@ function Chat() {
   const [sessionId, setSessionId] = useState(null);
   const [claudeReady, setClaudeReady] = useState(false);
   const [isComposing, setIsComposing] = useState(false); // Input method composition state
+
+  // 保存消息到当前对话
+  useEffect(() => {
+    if (activeConversationId && messages.length > 0) {
+      const updated = updateConversation(conversations, activeConversationId, { messages });
+      setConversations(updated);
+      saveConversations(updated);
+    }
+  }, [messages, activeConversationId]);
+
+  // 切换对话
+  const handleConversationSelect = useCallback((convId) => {
+    setActiveConversationId(convId);
+    setActiveConversationId(convId);
+
+    // 加载对话的消息
+    const conv = getConversation(conversations, convId);
+    if (conv && conv.messages) {
+      setMessages(conv.messages.slice(-50));
+    } else {
+      setMessages([]);
+    }
+  }, [conversations]);
+
+  // 创建新对话
+  const handleConversationCreate = useCallback((newConv) => {
+    const updated = [...conversations, newConv];
+    setConversations(updated);
+    saveConversations(updated);
+  }, [conversations]);
+
+  // 删除对话
+  const handleConversationDelete = useCallback((convId) => {
+    const updated = conversations.filter(c => c.id !== convId);
+    setConversations(updated);
+    saveConversations(updated);
+  }, [conversations]);
+
+  // 开始新会话 - 现在会创建新对话
+  const startNewConversation = useCallback(() => {
+    const newConv = createConversation();
+    const updated = [...conversations, newConv];
+    setConversations(updated);
+    saveConversations(updated);
+    setActiveConversationId(newConv.id);
+    setActiveConversationId(newConv.id);
+    setMessages([]);
+    setSessionId(null);
+  }, [conversations]);
   const [showSkillManager, setShowSkillManager] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showTokenStats, setShowTokenStats] = useState(false);
@@ -333,9 +413,9 @@ function Chat() {
 
   const startNewSession = useCallback(() => {
     sendMessage({ type: 'new-session' });
-    setMessages([]);
-    localStorage.removeItem('claude-chat-messages');
-  }, [sendMessage]);
+    // 创建新对话而不是清空消息
+    startNewConversation();
+  }, [sendMessage, startNewConversation]);
 
   // All CLI commands list for matching
   const allCommands = [
@@ -1051,30 +1131,54 @@ Type \`/\` in the input to see all available CLI commands.
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
-      {/* Header */}
-      <header className="sticky top-0 z-20 px-6 py-4 flex items-center justify-between bg-slate-900/80 backdrop-blur-xl border-b border-white/10">
-        <div className="flex items-center gap-4">
-          {/* Logo */}
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30" title="Claude Code CLI VoiceInter">
-            <Sparkles className="w-6 h-6 text-white" />
-          </div>
+      {/* 主布局: 左侧对话列表 + 右侧聊天区域 */}
+      <div className="flex flex-1 relative">
+        {/* 左侧对话列表 */}
+        {showConversationList && (
+          <ConversationList
+            activeConversationId={activeConversationId}
+            onConversationSelect={handleConversationSelect}
+            onConversationCreate={handleConversationCreate}
+            onConversationDelete={handleConversationDelete}
+            collapsed={false}
+          />
+        )}
 
-          <div>
-            <h1 className="text-xl font-semibold text-white tracking-tight">Claude Voice</h1>
-            <p className="text-sm text-white/50 flex items-center gap-2" title="WebSocket 连接状态 • Claude 会话是否就绪">
-              <span className={`inline-flex items-center gap-1.5 ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
-                {isConnected ? '已连接' : '离线'}
-              </span>
-              {claudeReady && (
-                <span className="text-white/30">•</span>
-              )}
-              {claudeReady && (
-                <span className="text-purple-400">会话就绪</span>
-              )}
-            </p>
-          </div>
-        </div>
+        {/* 右侧聊天区域 */}
+        <div className="flex-1 flex flex-col">
+          {/* Header */}
+          <header className="sticky top-0 z-20 px-6 py-4 flex items-center justify-between bg-slate-900/80 backdrop-blur-xl border-b border-white/10">
+            <div className="flex items-center gap-4">
+              {/* 切换对话列表按钮 */}
+              <button
+                onClick={() => setShowConversationList(!showConversationList)}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-all text-white/70 hover:text-white"
+                title={showConversationList ? '隐藏对话列表' : '显示对话列表'}
+              >
+                <PanelLeft className="w-5 h-5" />
+              </button>
+
+              {/* Logo */}
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30" title="Claude Code CLI VoiceInter">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+
+              <div>
+                <h1 className="text-xl font-semibold text-white tracking-tight">Claude Voice</h1>
+                <p className="text-sm text-white/50 flex items-center gap-2" title="WebSocket 连接状态 • Claude 会话是否就绪">
+                  <span className={`inline-flex items-center gap-1.5 ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+                    {isConnected ? '已连接' : '离线'}
+                  </span>
+                  {claudeReady && (
+                    <span className="text-white/30">•</span>
+                  )}
+                  {claudeReady && (
+                    <span className="text-purple-400">会话就绪</span>
+                  )}
+                </p>
+              </div>
+            </div>
 
         {/* Actions */}
         <div className="flex items-center gap-3">
@@ -1345,6 +1449,8 @@ Type \`/\` in the input to see all available CLI commands.
           </p>
         </div>
       </footer>
+        </div> {/* 结束右侧聊天区域 */}
+      </div> {/* 结束主布局 flex 容器 */}
 
       {/* Skill Manager Modal */}
       <SkillManager
