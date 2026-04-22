@@ -9,6 +9,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getErrorInfo } from '../utils/voiceErrors';
+import { getCachedAudio, cacheAudio, clearAllCache, getCacheStats } from '../utils/ttsCache';
 
 /**
  * 浏览器原生 TTS Hook (Fallback)
@@ -129,7 +130,8 @@ export function useHybridTTS(options = {}) {
     onModeChange,
     onEnd,
     onError,
-    preferKokoro = true  // 优先使用 Kokoro
+    preferKokoro = true,  // 优先使用 Kokoro
+    enableCache = true    // 启用缓存
   } = options;
 
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -193,11 +195,39 @@ export function useHybridTTS(options = {}) {
     }
   }, [kokoroReady, browserReady, preferKokoro, currentMode, onModeChange]);
 
-  // 使用 Kokoro 播放
+  // 使用 Kokoro 播放 (支持缓存)
   const speakWithKokoro = async (text) => {
     try {
       setIsSpeaking(true);
 
+      // 检查缓存 (如果启用)
+      if (enableCache) {
+        const cachedAudio = await getCachedAudio(text, voice, speed);
+        if (cachedAudio) {
+          console.log('[HybridTTS] 使用缓存音频');
+          const audioUrl = URL.createObjectURL(cachedAudio);
+          kokoroAudioRef.current = new Audio(audioUrl);
+
+          kokoroAudioRef.current.onended = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(audioUrl);
+            kokoroAudioRef.current = null;
+            onEnd?.();
+          };
+
+          kokoroAudioRef.current.onerror = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(audioUrl);
+            kokoroAudioRef.current = null;
+            onError?.('kokoro-error', '音频播放失败');
+          };
+
+          await kokoroAudioRef.current.play();
+          return;
+        }
+      }
+
+      // 未缓存，从 Kokoro 服务获取
       const response = await fetch(kokoroEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -209,6 +239,12 @@ export function useHybridTTS(options = {}) {
       }
 
       const audioBlob = await response.blob();
+
+      // 缓存音频 (如果启用)
+      if (enableCache) {
+        await cacheAudio(text, audioBlob, voice, speed);
+      }
+
       const audioUrl = URL.createObjectURL(audioBlob);
 
       kokoroAudioRef.current = new Audio(audioUrl);
@@ -312,7 +348,11 @@ export function useHybridTTS(options = {}) {
     speak,
     stop,
     switchMode,
-    isSupported: kokoroReady || browserReady
+    isSupported: kokoroReady || browserReady,
+    // 缓存相关
+    clearCache: clearAllCache,
+    getCacheStats,
+    enableCache
   };
 }
 
