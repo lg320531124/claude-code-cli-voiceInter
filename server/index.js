@@ -778,10 +778,10 @@ wss.on('connection', (ws, request) => {
 // API ENDPOINTS
 // ============================================
 
-// 语音服务状态
+// 语音服务状态 (Whisper.cpp uses /health, Kokoro uses /health)
 app.get('/api/voice/status', async (req, res) => {
-  const whisperOk = await checkService(WHISPER_ENDPOINT);
-  const kokoroOk = await checkService(KOKORO_ENDPOINT);
+  const whisperOk = await checkService('http://127.0.0.1:2022/health');
+  const kokoroOk = await checkService('http://127.0.0.1:8880/health');
 
   res.json({
     whisper: whisperOk ? 'running' : 'offline',
@@ -798,14 +798,14 @@ app.post('/api/voice/stt', upload.single('audio'), async (req, res) => {
     }
 
     const audioBuffer = req.file.buffer;
-    const language = req.body.language || 'auto';
 
+    // Whisper.cpp /inference endpoint format
     const formData = new FormData();
     formData.append('file', new Blob([audioBuffer]), 'audio.webm');
-    formData.append('model', 'whisper-1');
-    formData.append('language', language);
+    formData.append('temperature', '0.0');
+    formData.append('response_format', 'json');
 
-    const response = await fetch(`${WHISPER_ENDPOINT}/audio/transcriptions`, {
+    const response = await fetch('http://127.0.0.1:2022/inference', {
       method: 'POST',
       body: formData
     });
