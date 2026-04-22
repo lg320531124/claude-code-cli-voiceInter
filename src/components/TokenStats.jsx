@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Activity, Zap, Database, DollarSign, Clock, Cpu } from 'lucide-react';
+import { X, Activity, Zap, Database, DollarSign, Clock, Cpu, PhoneCall } from 'lucide-react';
 
 /**
  * Token Stats Component
@@ -11,19 +11,20 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
   const { session, cumulative } = tokenUsage;
 
   // Calculate cache efficiency
-  const cacheEfficiency = cumulative.inputTokens > 0
-    ? ((cumulative.cacheReadTokens / cumulative.inputTokens) * 100).toFixed(1)
-    : 0;
+  const cacheEfficiency =
+    cumulative.inputTokens > 0
+      ? ((cumulative.cacheReadTokens / cumulative.inputTokens) * 100).toFixed(1)
+      : 0;
 
   // Format USD with appropriate precision
-  const formatCost = (cost) => {
+  const formatCost = cost => {
     if (cost < 0.01) return `$${cost.toFixed(6)}`;
     if (cost < 1) return `$${cost.toFixed(4)}`;
     return `$${cost.toFixed(2)}`;
   };
 
   // Format large numbers
-  const formatTokens = (num) => {
+  const formatTokens = num => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
     return num.toString();
@@ -36,10 +37,7 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
       <div className="relative w-full max-w-lg mx-4 bg-slate-900/95 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
@@ -54,10 +52,7 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
               <p className="text-sm text-white/50">API usage and cost tracking</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-white/10 transition-colors"
-          >
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 transition-colors">
             <X className="w-5 h-5 text-white/70" />
           </button>
         </div>
@@ -73,31 +68,39 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
             <div className="grid grid-cols-2 gap-3">
               <div className="p-4 bg-white/5 rounded-xl border border-white/10">
                 <div className="flex items-center gap-2 mb-1">
-                  <Zap className="w-4 h-4 text-yellow-400" />
-                  <span className="text-xs text-white/50">Input Tokens</span>
+                  <PhoneCall className="w-4 h-4 text-orange-400" />
+                  <span className="text-xs text-white/50">API Calls</span>
                 </div>
-                <span className="text-xl font-semibold text-white">{formatTokens(session.inputTokens)}</span>
-              </div>
-              <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                <div className="flex items-center gap-2 mb-1">
-                  <Zap className="w-4 h-4 text-purple-400" />
-                  <span className="text-xs text-white/50">Output Tokens</span>
-                </div>
-                <span className="text-xl font-semibold text-white">{formatTokens(session.outputTokens)}</span>
+                <span className="text-xl font-semibold text-orange-400">
+                  {session.apiCallCount || 0}
+                </span>
               </div>
               <div className="p-4 bg-white/5 rounded-xl border border-white/10">
                 <div className="flex items-center gap-2 mb-1">
                   <DollarSign className="w-4 h-4 text-green-400" />
                   <span className="text-xs text-white/50">Session Cost</span>
                 </div>
-                <span className="text-xl font-semibold text-green-400">{formatCost(session.totalCostUsd)}</span>
+                <span className="text-xl font-semibold text-green-400">
+                  {formatCost(session.totalCostUsd)}
+                </span>
               </div>
               <div className="p-4 bg-white/5 rounded-xl border border-white/10">
                 <div className="flex items-center gap-2 mb-1">
-                  <Database className="w-4 h-4 text-blue-400" />
-                  <span className="text-xs text-white/50">Cache Read</span>
+                  <Zap className="w-4 h-4 text-yellow-400" />
+                  <span className="text-xs text-white/50">Input Tokens</span>
                 </div>
-                <span className="text-xl font-semibold text-blue-400">{formatTokens(session.cacheReadTokens)}</span>
+                <span className="text-xl font-semibold text-white">
+                  {formatTokens(session.inputTokens)}
+                </span>
+              </div>
+              <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <Zap className="w-4 h-4 text-purple-400" />
+                  <span className="text-xs text-white/50">Output Tokens</span>
+                </div>
+                <span className="text-xl font-semibold text-white">
+                  {formatTokens(session.outputTokens)}
+                </span>
               </div>
             </div>
           </div>
@@ -108,7 +111,16 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
               <Activity className="w-4 h-4" />
               Cumulative Total
             </h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
+              <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-center">
+                <div className="flex items-center justify-center gap-1 mb-1">
+                  <PhoneCall className="w-3 h-3 text-orange-400" />
+                  <span className="text-xs text-white/50">API Calls</span>
+                </div>
+                <span className="text-lg font-semibold text-orange-400">
+                  {cumulative.apiCallCount || 0}
+                </span>
+              </div>
               <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-center">
                 <span className="text-xs text-white/50 block mb-1">Requests</span>
                 <span className="text-lg font-semibold text-white">{cumulative.requests}</span>
@@ -121,7 +133,9 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
               </div>
               <div className="p-3 bg-white/5 rounded-xl border border-white/10 text-center">
                 <span className="text-xs text-white/50 block mb-1">Total Cost</span>
-                <span className="text-lg font-semibold text-green-400">{formatCost(cumulative.totalCostUsd)}</span>
+                <span className="text-lg font-semibold text-green-400">
+                  {formatCost(cumulative.totalCostUsd)}
+                </span>
               </div>
             </div>
           </div>
@@ -144,7 +158,8 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
                 />
               </div>
               <p className="text-xs text-white/40 mt-2">
-                {formatTokens(cumulative.cacheReadTokens)} cached tokens saved {formatCost(cumulative.cacheReadTokens * 0.000003)} in costs
+                {formatTokens(cumulative.cacheReadTokens)} cached tokens saved{' '}
+                {formatCost(cumulative.cacheReadTokens * 0.000003)} in costs
               </p>
             </div>
           </div>
@@ -161,13 +176,17 @@ function TokenStats({ isOpen, onClose, tokenUsage }) {
                   <div key={model} className="p-3 bg-white/5 rounded-xl border border-white/10">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-white font-mono">{model}</span>
-                      <span className="text-xs text-green-400">{formatCost(usage.totalCostUsd || 0)}</span>
+                      <span className="text-xs text-green-400">
+                        {formatCost(usage.totalCostUsd || 0)}
+                      </span>
                     </div>
                     <div className="flex gap-4 text-xs text-white/50">
                       <span>In: {formatTokens(usage.inputTokens || 0)}</span>
                       <span>Out: {formatTokens(usage.outputTokens || 0)}</span>
                       {usage.cacheReadTokens > 0 && (
-                        <span className="text-blue-400">Cache: {formatTokens(usage.cacheReadTokens)}</span>
+                        <span className="text-blue-400">
+                          Cache: {formatTokens(usage.cacheReadTokens)}
+                        </span>
                       )}
                     </div>
                   </div>

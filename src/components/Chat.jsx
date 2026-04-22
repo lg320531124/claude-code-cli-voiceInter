@@ -22,6 +22,9 @@ import {
   PanelLeft,
   Play,
   MemoryStick,
+  Paperclip,
+  Image,
+  X,
 } from 'lucide-react';
 
 // Lazy load modal components (only loaded when needed)
@@ -103,6 +106,10 @@ function Chat() {
   const [sessionId, setSessionId] = useState(null);
   const [claudeReady, setClaudeReady] = useState(false);
   const [isComposing, setIsComposing] = useState(false); // Input method composition state
+
+  // File attachments
+  const [attachments, setAttachments] = useState([]);
+  const fileInputRef = useRef(null);
 
   // 保存消息到当前对话
   useEffect(() => {
@@ -194,6 +201,7 @@ function Chat() {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       modelUsage: {},
+      apiCallCount: 0, // API calls in current session
     },
     cumulative: {
       inputTokens: 0,
@@ -202,6 +210,7 @@ function Chat() {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       requests: 0,
+      apiCallCount: 0, // Total API calls
     },
   });
 
@@ -455,6 +464,7 @@ function Chat() {
           cacheCreationTokens:
             prev.cumulative.cacheCreationTokens + (usage.cacheCreationTokens || 0),
           requests: prev.cumulative.requests + 1,
+          apiCallCount: usage.apiCallCount || prev.cumulative.apiCallCount + 1,
         };
         return {
           session: {
@@ -464,6 +474,7 @@ function Chat() {
             cacheReadTokens: usage.cacheReadTokens || 0,
             cacheCreationTokens: usage.cacheCreationTokens || 0,
             modelUsage: usage.modelUsage || {},
+            apiCallCount: usage.apiCallCount || 0,
           },
           cumulative: newCumulative,
         };
@@ -473,12 +484,46 @@ function Chat() {
 
   const sendToClaude = useCallback(
     text => {
-      if (!text.trim() || !isConnected || isProcessing) return;
+      if ((!text.trim() && attachments.length === 0) || !isConnected || isProcessing) return;
+
+      // Build message content with attachments
+      let fullContent = text.trim();
+      if (attachments.length > 0) {
+        const attachmentInfo = attachments
+          .map(a => {
+            if (a.isImage) {
+              return `[图片: ${a.name}]`;
+            } else {
+              // For text files, include content snippet
+              const snippet = a.content.slice(0, 500);
+              return `\n---\n文件: ${a.name}\n${snippet}${a.content.length > 500 ? '...(truncated)' : ''}\n---`;
+            }
+          })
+          .join('\n');
+        fullContent = fullContent + '\n' + attachmentInfo;
+      }
 
       // 发送动画
       setIsSending(true);
-      setMessages(prev => [...prev, { role: 'user', content: text.trim(), isSending: true }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'user',
+          content: fullContent,
+          isSending: true,
+          attachments:
+            attachments.length > 0
+              ? attachments.map(a => ({
+                  name: a.name,
+                  type: a.type,
+                  isImage: a.isImage,
+                  preview: a.isImage ? a.content : null,
+                }))
+              : undefined,
+        },
+      ]);
       setInputText('');
+      setAttachments([]); // Clear attachments after sending
       setIsProcessing(true);
 
       // 短暂延迟后完成发送动画
@@ -486,7 +531,7 @@ function Chat() {
         setIsSending(false);
         // 更新消息状态为已发送
         setMessages(prev =>
-          prev.map(m => (m.isSending && m.content === text.trim() ? { ...m, isSending: false } : m))
+          prev.map(m => (m.isSending && m.content === fullContent ? { ...m, isSending: false } : m))
         );
       }, 300);
 
@@ -496,13 +541,13 @@ function Chat() {
 
       sendMessage({
         type: 'claude-command',
-        command: text.trim(),
+        command: fullContent,
         options: { cwd: '.' },
       });
 
       inputRef.current?.focus();
     },
-    [isConnected, isProcessing, sendMessage, voice]
+    [isConnected, isProcessing, sendMessage, voice, attachments]
   );
 
   const startNewSession = useCallback(() => {
@@ -666,6 +711,99 @@ function Chat() {
 
   const handleCompositionEnd = () => {
     setIsComposing(false);
+  };
+
+  // File attachment handlers
+  const handleFileSelect = e => {
+    const files = Array.from(e.target.files);
+    processFiles(files);
+  };
+
+  const handleDrop = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = Array.from(e.dataTransfer.files);
+    processFiles(files);
+  };
+
+  const handleDragOver = e => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const processFiles = files => {
+    const validFiles = files.filter(file => {
+      // Limit file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'error',
+            content: `⚠️ 文件 "${file.name}" 超过 10MB 限制`,
+          },
+        ]);
+        return false;
+      }
+      // Check file type (images, documents, code files)
+      const allowedTypes = [
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'application/pdf',
+        'text/plain',
+        'text/markdown',
+        'application/json',
+        'text/csv',
+      ];
+      const allowedExtensions = [
+        '.js',
+        '.jsx',
+        '.ts',
+        '.tsx',
+        '.py',
+        '.java',
+        '.go',
+        '.rs',
+        '.c',
+        '.cpp',
+        '.md',
+        '.txt',
+        '.json',
+        '.yaml',
+        '.yml',
+      ];
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+      return allowedTypes.includes(file.type) || allowedExtensions.includes(ext);
+    });
+
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const attachment = {
+          id: Date.now() + Math.random(),
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          content: e.target.result,
+          isImage: file.type.startsWith('image/'),
+        };
+        setAttachments(prev => [...prev, attachment]);
+      };
+      if (file.type.startsWith('image/')) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    });
+  };
+
+  const removeAttachment = id => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
+  const openFileDialog = () => {
+    fileInputRef.current?.click();
   };
 
   const handleVoiceClick = () => {
@@ -1595,6 +1733,41 @@ Type \`/\` in the input to see all available CLI commands.
                   visible={showCommandPalette}
                 />
 
+                {/* Attachment Preview */}
+                {attachments.length > 0 && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 flex gap-2 p-2 bg-gray-800/90 rounded-xl border border-gray-700/50 overflow-x-auto max-w-full">
+                    {attachments.map(attachment => (
+                      <div key={attachment.id} className="relative flex-shrink-0 group">
+                        {attachment.isImage ? (
+                          <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-700">
+                            <img
+                              src={attachment.content}
+                              alt={attachment.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-gray-700 flex items-center justify-center p-2">
+                            <FileText className="w-6 h-6 text-gray-400" />
+                            <span className="text-xs text-gray-400 mt-1 truncate w-full text-center">
+                              {attachment.name.slice(0, 8)}
+                            </span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => removeAttachment(attachment.id)}
+                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                        <span className="absolute bottom-0 left-0 right-0 text-xs text-gray-400 bg-gray-900/80 px-1 truncate rounded-b">
+                          {attachment.name.slice(0, 12)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <textarea
                   ref={inputRef}
                   value={inputText}
@@ -1602,13 +1775,21 @@ Type \`/\` in the input to see all available CLI commands.
                   onKeyDown={handleKeyDown}
                   onCompositionStart={handleCompositionStart}
                   onCompositionEnd={handleCompositionEnd}
-                  placeholder="Message Claude... or type / for commands"
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  placeholder={
+                    attachments.length > 0
+                      ? '添加描述或直接发送...'
+                      : 'Message Claude... or type / for commands'
+                  }
                   disabled={isProcessing}
                   rows={1}
                   className={`w-full px-6 py-4 pr-14 backdrop-blur-xl border rounded-3xl text-white placeholder-white/40 focus:outline-none resize-none transition-all duration-200 disabled:opacity-50 text-[15px] ${
-                    inputText.trim() && !isProcessing
-                      ? 'bg-white/15 border-purple-500/40 shadow-lg shadow-purple-500/10'
-                      : 'bg-white/10 border-white/10 focus:border-purple-500/50 focus:bg-white/15'
+                    attachments.length > 0
+                      ? 'border-blue-500/40 bg-blue-500/10'
+                      : inputText.trim() && !isProcessing
+                        ? 'bg-white/15 border-purple-500/40 shadow-lg shadow-purple-500/10'
+                        : 'bg-white/10 border-white/10 focus:border-purple-500/50 focus:bg-white/15'
                   }`}
                   style={{
                     minHeight: '56px',
@@ -1619,6 +1800,26 @@ Type \`/\` in the input to see all available CLI commands.
 
                 {/* Voice Buttons - inside input on the right */}
                 <div className="absolute right-3 bottom-3 flex gap-2">
+                  {/* File Upload Button */}
+                  <button
+                    type="button"
+                    onClick={openFileDialog}
+                    disabled={isProcessing || !isConnected}
+                    title="📎 上传文件/图片"
+                    className="h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20 disabled:opacity-40"
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.txt,.md,.json,.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.c,.cpp,.yaml,.yml,.pdf,.csv"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+
                   {/* Conversation Mode Button */}
                   <button
                     type="button"

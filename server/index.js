@@ -141,6 +141,7 @@ let claudeInstance = null;
 let messageBuffer = '';
 let isClaudeReady = false;
 let pendingCommand = null;
+let apiCallCount = 0; // Track API calls
 
 /**
  * Start the persistent Claude instance
@@ -321,6 +322,9 @@ function handleClaudeMessage(msg) {
 
     // Extract complete usage and cost info
     if (msg.usage || msg.total_cost_usd || msg.modelUsage) {
+      // Increment API call count
+      apiCallCount++;
+
       const usageData = {
         totalCostUsd: msg.total_cost_usd || 0,
         inputTokens: msg.usage?.input_tokens || 0,
@@ -330,6 +334,7 @@ function handleClaudeMessage(msg) {
         durationMs: msg.duration_ms || 0,
         durationApiMs: msg.duration_api_ms || 0,
         modelUsage: msg.modelUsage || {},
+        apiCallCount: apiCallCount, // Current session API calls
       };
 
       logger.debug('Claude result cost:', {
