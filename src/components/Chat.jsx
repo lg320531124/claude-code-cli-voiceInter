@@ -1,14 +1,35 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
-import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings } from 'lucide-react';
+import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio } from 'lucide-react';
 import SkillManager from './SkillManager';
 import CommandPalette from './CommandPalette';
+import TokenStats from './TokenStats';
+import CommandSidebar from './CommandSidebar';
+import ShortcutsHelp from './ShortcutsHelp';
+import VoicePanel, { useVoicePanelRef } from './VoicePanel';
+import { shortcuts, shortcutActions } from '../config/shortcuts';
 
 function Chat() {
   const { isConnected, sendMessage, latestMessage } = useWebSocket();
 
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    // Load messages from localStorage on init
+    try {
+      const saved = localStorage.getItem('claude-chat-messages');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        console.log('[Chat] Loaded saved messages:', parsed.length);
+        return parsed.slice(-50);
+      }
+    } catch (e) {
+      console.warn('[Chat] Failed to load saved messages:', e);
+    }
+    return [];
+  });
+
+  // Stream buffer for accumulating streaming content
+  const streamBufferRef = useRef('');
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -16,9 +37,40 @@ function Chat() {
   const [isComposing, setIsComposing] = useState(false); // Input method composition state
   const [showSkillManager, setShowSkillManager] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showTokenStats, setShowTokenStats] = useState(false);
+  const [showCommandSidebar, setShowCommandSidebar] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [compactMode, setCompactMode] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
+  const [conversationMode, setConversationMode] = useState(false);  // 双向对话模式
+  const voicePanelRef = useVoicePanelRef();
+  const [currentModel, setCurrentModel] = useState('sonnet');
+  const [effortLevel, setEffortLevel] = useState('medium');
+
+  // Token usage tracking
+  const [tokenUsage, setTokenUsage] = useState({
+    session: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalCostUsd: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      modelUsage: {}
+    },
+    cumulative: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalCostUsd: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      requests: 0
+    }
+  });
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const voiceErrorShownRef = useRef(new Set());
+  const voiceOriginalInputRef = useRef(null); // null means not captured yet
 
   const handleVoiceResult = useCallback((text) => {
     if (text.trim()) {
@@ -32,12 +84,70 @@ function Chat() {
     autoSpeakResponse: true
   });
 
+  // Store original input when voice starts (only once)
+  useEffect(() => {
+    if (voice.isListening && voiceOriginalInputRef.current === null) {
+      // Capture current input when starting to listen
+      voiceOriginalInputRef.current = inputText;
+    }
+    if (!voice.isListening) {
+      // Reset when voice stops
+      voiceOriginalInputRef.current = null;
+    }
+  }, [voice.isListening, inputText]);
+
+  // Show voice interim transcript appended to original input
+  useEffect(() => {
+    if (voice.interimTranscript && voice.isListening) {
+      const original = voiceOriginalInputRef.current ?? '';
+      const combined = original + (original ? ' ' : '') + voice.interimTranscript;
+      setInputText(combined);
+    }
+  }, [voice.interimTranscript, voice.isListening]);
+
+  // Show voice final transcript appended to original input (not auto-send)
+  useEffect(() => {
+    if (voice.transcript && voice.transcript.trim()) {
+      const original = voiceOriginalInputRef.current ?? '';
+      const combined = original + (original ? ' ' : '') + voice.transcript;
+      setInputText(combined);
+      voiceOriginalInputRef.current = null; // Reset after final
+      inputRef.current?.focus();
+    }
+  }, [voice.transcript]);
+
+  // Show voice error as message
+  useEffect(() => {
+    if (voice.error && voice.errorMessage) {
+      // Only show error once per error change
+      if (!voiceErrorShownRef.current.has(voice.error)) {
+        voiceErrorShownRef.current.add(voice.error);
+        setMessages(prev => [...prev, {
+          role: 'error',
+          content: `⚠️ 语音错误：${voice.errorMessage}\n\n请检查：\n1. 麦克风是否正常工作\n2. 浏览器是否允许麦克风权限\n3. 是否使用 Chrome/Safari/Edge 浏览器`
+        }]);
+      }
+    }
+  }, [voice.error, voice.errorMessage]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Save messages to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('claude-chat-messages', JSON.stringify(messages));
+    } catch (e) {
+      // localStorage might be full or disabled
+      console.warn('[Chat] Failed to save messages:', e);
+    }
+  }, [messages]);
+
   useEffect(() => {
     if (!latestMessage) return;
+
+    console.log('[Chat] Received message:', latestMessage.type, latestMessage);
 
     const { type, data, error, message, sessionId: newSessionId, claudeReady: ready } = latestMessage;
 
@@ -51,22 +161,49 @@ function Chat() {
       setMessages([]);
     }
 
-    if (type === 'status' && message === 'Processing...') {
-      setIsProcessing(true);
+    if (type === 'status') {
+      if (message === 'Processing...') {
+        setIsProcessing(true);
+        streamBufferRef.current = ''; // Reset stream buffer
+      }
     }
 
+    // Handle streaming content (real-time updates)
+    if (type === 'stream-delta') {
+      const content = latestMessage.content || '';
+      if (content) {
+        streamBufferRef.current += content;
+        // Update UI with streaming content
+        setMessages(prev => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg?.role === 'assistant' && lastMsg.isStreaming) {
+            // Update existing streaming message
+            return [...prev.slice(0, -1), { ...lastMsg, content: streamBufferRef.current }];
+          }
+          // Add new streaming message
+          return [...prev, { role: 'assistant', content: streamBufferRef.current, isStreaming: true }];
+        });
+      }
+    }
+
+    // Handle final response
     if (type === 'claude-response' && data) {
+      console.log('[Chat] claude-response data:', data);
       setIsProcessing(false);
       const content = data.content || '';
       if (content.trim()) {
         setMessages(prev => {
           const lastMsg = prev[prev.length - 1];
+          // 防止重复，但允许更新（比如流式更新的内容）
           if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
+            console.log('[Chat] Skipping duplicate message');
             return prev;
           }
+          console.log('[Chat] Adding assistant message:', content.substring(0, 50));
           return [...prev, { role: 'assistant', content }];
         });
-        if (voice.isSupported) {
+        // 自动朗读响应
+        if (voice.isSupported && voice.isSpeaking === false) {
           voice.speak(content);
         }
       }
@@ -113,6 +250,45 @@ function Chat() {
       setMessages(prev => [...prev, { role: 'error', content: error || 'Unknown error' }]);
     }
 
+    // Handle token usage updates (from assistant messages)
+    if (type === 'token-usage') {
+      const { usage } = latestMessage;
+      setTokenUsage(prev => ({
+        ...prev,
+        session: {
+          ...prev.session,
+          inputTokens: usage.inputTokens || 0,
+          outputTokens: usage.outputTokens || 0
+        }
+      }));
+    }
+
+    // Handle final token usage (from result messages)
+    if (type === 'token-usage-final') {
+      const { usage } = latestMessage;
+      setTokenUsage(prev => {
+        const newCumulative = {
+          inputTokens: prev.cumulative.inputTokens + (usage.inputTokens || 0),
+          outputTokens: prev.cumulative.outputTokens + (usage.outputTokens || 0),
+          totalCostUsd: prev.cumulative.totalCostUsd + (usage.totalCostUsd || 0),
+          cacheReadTokens: prev.cumulative.cacheReadTokens + (usage.cacheReadTokens || 0),
+          cacheCreationTokens: prev.cumulative.cacheCreationTokens + (usage.cacheCreationTokens || 0),
+          requests: prev.cumulative.requests + 1
+        };
+        return {
+          session: {
+            inputTokens: usage.inputTokens || 0,
+            outputTokens: usage.outputTokens || 0,
+            totalCostUsd: usage.totalCostUsd || 0,
+            cacheReadTokens: usage.cacheReadTokens || 0,
+            cacheCreationTokens: usage.cacheCreationTokens || 0,
+            modelUsage: usage.modelUsage || {}
+          },
+          cumulative: newCumulative
+        };
+      });
+    }
+
   }, [latestMessage, voice]);
 
   const sendToClaude = useCallback((text) => {
@@ -138,6 +314,7 @@ function Chat() {
   const startNewSession = useCallback(() => {
     sendMessage({ type: 'new-session' });
     setMessages([]);
+    localStorage.removeItem('claude-chat-messages');
   }, [sendMessage]);
 
   // All CLI commands list for matching
@@ -295,11 +472,58 @@ function Chat() {
   };
 
   const handleVoiceClick = () => {
+    console.log('[Voice] Click - isSupported:', voice.isSupported, 'isInitialized:', voice.isInitialized);
+
+    // Check if voice is supported
+    if (!voice.isSupported) {
+      setMessages(prev => [...prev, {
+        role: 'error',
+        content: '⚠️ 浏览器不支持语音识别功能。\n\n请使用以下浏览器：\n- Chrome (推荐)\n- Safari\n- Edge\n\nFirefox 目前不支持 Web Speech API。'
+      }]);
+      return;
+    }
+
+    // Check if initialized
+    if (!voice.isInitialized) {
+      setMessages(prev => [...prev, {
+        role: 'error',
+        content: '⚠️ 语音功能尚未初始化，请稍后再试。'
+      }]);
+      return;
+    }
+
+    // Handle click
     if (voice.isSpeaking && voice.stopSpeaking) {
       voice.stopSpeaking();
     } else if (voice.toggleListening) {
       voice.toggleListening();
     }
+  };
+
+  // Handle conversation mode (bidirectional voice)
+  const handleConversationModeClick = () => {
+    setConversationMode(!conversationMode);
+    if (!conversationMode) {
+      // 进入对话模式时关闭原有的语音功能
+      if (voice.isListening && voice.stopListening) {
+        voice.stopListening();
+      }
+      if (voice.isSpeaking && voice.stopSpeaking) {
+        voice.stopSpeaking();
+      }
+    }
+  };
+
+  // Handle user speech in conversation mode
+  const handleConversationUserSpeech = (text) => {
+    if (text.trim()) {
+      sendToClaude(text);
+    }
+  };
+
+  // Handle assistant speech in conversation mode
+  const handleConversationAssistantSpeech = (text) => {
+    console.log('[Conversation] Assistant said:', text.substring(0, 50));
   };
 
   // Handle command palette selection
@@ -444,6 +668,140 @@ function Chat() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // Model cycling (opus → sonnet → haiku)
+  const cycleModel = () => {
+    const models = ['opus', 'sonnet', 'haiku'];
+    const currentIndex = models.indexOf(currentModel);
+    const nextIndex = (currentIndex + 1) % models.length;
+    const nextModel = models[nextIndex];
+    setCurrentModel(nextModel);
+    executeCliCommand('--model', [nextModel]);
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `✅ 已切换模型至 **${nextModel}**`
+    }]);
+  };
+
+  // Toggle fast mode
+  const toggleFastMode = () => {
+    const newMode = !fastMode;
+    setFastMode(newMode);
+    executeCliCommand('--fast', [newMode ? 'on' : 'off']);
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `✅ Fast 模式已 **${newMode ? '开启' : '关闭'}**`
+    }]);
+  };
+
+  // Effort cycling (low → medium → high → max)
+  const cycleEffort = () => {
+    const efforts = ['low', 'medium', 'high', 'max'];
+    const currentIndex = efforts.indexOf(effortLevel);
+    const nextIndex = (currentIndex + 1) % efforts.length;
+    const nextEffort = efforts[nextIndex];
+    setEffortLevel(nextEffort);
+    executeCliCommand('--effort', [nextEffort]);
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `✅ Effort 级别已切换至 **${nextEffort}**`
+    }]);
+  };
+
+  // Execute shortcut action
+  const executeShortcutAction = (action) => {
+    switch (action) {
+      case 'new-session':
+        startNewSession();
+        break;
+      case 'clear-messages':
+        setMessages([]);
+        break;
+      case 'export-chat':
+        exportChat();
+        break;
+      case 'toggle-command-sidebar':
+        setShowCommandSidebar(prev => !prev);
+        break;
+      case 'open-skill-manager':
+        setShowSkillManager(true);
+        break;
+      case 'open-token-stats':
+        setShowTokenStats(true);
+        break;
+      case 'toggle-model':
+        cycleModel();
+        break;
+      case 'toggle-fast-mode':
+        toggleFastMode();
+        break;
+      case 'toggle-effort':
+        cycleEffort();
+        break;
+      case 'show-help':
+        setShowShortcutsHelp(true);
+        break;
+      case 'toggle-sidebar':
+        setShowCommandSidebar(prev => !prev);
+        break;
+      case 'toggle-compact-mode':
+        setCompactMode(prev => !prev);
+        break;
+      case 'escape':
+        // Close any open modal/sidebar
+        if (showSkillManager) setShowSkillManager(false);
+        else if (showTokenStats) setShowTokenStats(false);
+        else if (showCommandSidebar) setShowCommandSidebar(false);
+        else if (showShortcutsHelp) setShowShortcutsHelp(false);
+        else if (showCommandPalette) {
+          setShowCommandPalette(false);
+          setInputText('');
+        }
+        break;
+      case 'reload':
+        window.location.reload();
+        break;
+      default:
+        console.log('Unknown shortcut action:', action);
+    }
+  };
+
+  // Global keyboard shortcuts handler
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      // Don't trigger shortcuts when typing in input
+      if (document.activeElement === inputRef.current && inputText.length > 0 && !inputText.startsWith('/')) {
+        return;
+      }
+
+      // Check for keyboard shortcuts
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifierKey = isMac ? e.metaKey : e.ctrlKey;
+
+      // Handle modifier + key combinations
+      if (modifierKey) {
+        const key = e.key.toUpperCase();
+        const shortcut = shortcuts.find(s => {
+          const shortcutKey = s.key.replace('Ctrl+', '').replace('⌘', '');
+          return shortcutKey === key;
+        });
+
+        if (shortcut) {
+          e.preventDefault();
+          executeShortcutAction(shortcut.action);
+        }
+      }
+
+      // Handle Escape key
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        executeShortcutAction('escape');
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [inputText, isConnected, showSkillManager, showTokenStats, showCommandSidebar, showShortcutsHelp, showCommandPalette]);
 
   // Show help message
   const showHelp = () => {
@@ -598,25 +956,25 @@ Type \`/\` in the input to see all available CLI commands.
       </div>
 
       {/* Header */}
-      <header className="relative px-6 py-6 flex items-center justify-between">
+      <header className="sticky top-0 z-20 px-6 py-4 flex items-center justify-between bg-slate-900/80 backdrop-blur-xl border-b border-white/10">
         <div className="flex items-center gap-4">
           {/* Logo */}
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30" title="Claude Code CLI VoiceInter">
             <Sparkles className="w-6 h-6 text-white" />
           </div>
 
           <div>
             <h1 className="text-xl font-semibold text-white tracking-tight">Claude Voice</h1>
-            <p className="text-sm text-white/50 flex items-center gap-2">
+            <p className="text-sm text-white/50 flex items-center gap-2" title="WebSocket 连接状态 • Claude 会话是否就绪">
               <span className={`inline-flex items-center gap-1.5 ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
-                {isConnected ? 'Connected' : 'Offline'}
+                {isConnected ? '已连接' : '离线'}
               </span>
               {claudeReady && (
                 <span className="text-white/30">•</span>
               )}
               {claudeReady && (
-                <span className="text-purple-400">Session Active</span>
+                <span className="text-purple-400">会话就绪</span>
               )}
             </p>
           </div>
@@ -644,7 +1002,7 @@ Type \`/\` in the input to see all available CLI commands.
             onClick={startNewSession}
             disabled={!isConnected}
             className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 disabled:opacity-50 group"
-            title="Start new session"
+            title="🔄 开始新会话 - 清除当前对话历史，启动新的 Claude 会话"
           >
             <RefreshCw className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
           </button>
@@ -654,9 +1012,47 @@ Type \`/\` in the input to see all available CLI commands.
             onClick={() => setShowSkillManager(true)}
             disabled={!isConnected}
             className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 disabled:opacity-50 group"
-            title="Open Skill Manager"
+            title="📄 Skill 管理器 - 导入、创建和管理 Claude Skills"
           >
             <FileText className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+          </button>
+
+          {/* Token Stats button */}
+          <button
+            onClick={() => setShowTokenStats(true)}
+            disabled={!isConnected}
+            className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 disabled:opacity-50 group relative"
+            title="📊 Token 统计 - 查看 API 使用量、成本和缓存效率"
+          >
+            <Activity className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+            {tokenUsage.cumulative.totalCostUsd > 0 && (
+              <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-green-500/80 text-xs text-white font-medium">
+                ${tokenUsage.cumulative.totalCostUsd.toFixed(4)}
+              </span>
+            )}
+          </button>
+
+          {/* CLI Commands button */}
+          <button
+            onClick={() => setShowCommandSidebar(!showCommandSidebar)}
+            disabled={!isConnected}
+            className={`p-3 rounded-2xl backdrop-blur-xl border transition-all duration-200 disabled:opacity-50 group ${
+              showCommandSidebar
+                ? 'bg-purple-500/30 border-purple-500/50'
+                : 'bg-white/10 border-white/10 hover:bg-white/20'
+            }`}
+            title="💻 CLI 命令面板 - 可视化选择和执行所有 Claude CLI 命令"
+          >
+            <Terminal className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+          </button>
+
+          {/* Keyboard Shortcuts button */}
+          <button
+            onClick={() => setShowShortcutsHelp(true)}
+            className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 group"
+            title="⌨️ 键盘快捷键 - 显示所有可用快捷键"
+          >
+            <Keyboard className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
           </button>
         </div>
       </header>
@@ -734,30 +1130,85 @@ Type \`/\` in the input to see all available CLI commands.
                 }}
               />
 
-              {/* Voice Button - inside input on the right */}
-              <div className="absolute right-3 bottom-3">
+              {/* Voice Buttons - inside input on the right */}
+              <div className="absolute right-3 bottom-3 flex gap-2">
+                {/* Conversation Mode Button */}
+                <button
+                  type="button"
+                  onClick={handleConversationModeClick}
+                  disabled={isProcessing || !isConnected}
+                  title={conversationMode ? '结束对话模式' : '开始双向对话'}
+                  className={`h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border ${
+                    conversationMode
+                      ? 'bg-gradient-to-r from-green-500 to-teal-500 border-green-400/50 text-white shadow-lg shadow-green-500/30'
+                      : 'bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20'
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  <Radio className="w-5 h-5" />
+                </button>
+
+                {/* Single Voice Button */}
                 <button
                   type="button"
                   onClick={handleVoiceClick}
-                  disabled={isProcessing || !isConnected || !voice.isSupported}
-                  title={!voice.isSupported ? 'Voice not supported' : voice.isListening ? 'Stop listening' : 'Start voice input'}
+                  disabled={isProcessing || !isConnected || conversationMode}
+                  title={!voice.isSupported ? '⚠️ 浏览器不支持语音' : voice.isListening ? '🔴 点击停止录音' : '🎤 点击开始语音输入'}
                   className={`h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border ${
-                    voice.isListening
+                    conversationMode
+                      ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-50'
+                      : voice.isListening
                       ? 'bg-gradient-to-r from-red-500 to-orange-500 border-red-400/50 text-white shadow-lg shadow-red-500/30 animate-pulse'
                       : voice.isSpeaking
                       ? 'bg-gradient-to-r from-purple-500 to-pink-500 border-purple-400/50 text-white shadow-lg shadow-purple-500/30'
+                      : !voice.isSupported
+                      ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed'
                       : 'bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20'
                   } disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
                   {voice.isSpeaking ? (
                     <Volume2 className="w-5 h-5 animate-pulse" />
-                  ) : voice.isListening ? (
-                    <Mic className="w-5 h-5" />
                   ) : (
                     <Mic className="w-5 h-5" />
                   )}
                 </button>
               </div>
+
+              {/* Listening indicator - above the input */}
+              {!conversationMode && voice.isListening && (
+                <div className="absolute bottom-full left-0 right-0 mb-2 p-2 bg-red-500/20 backdrop-blur-xl rounded-xl border border-red-500/30">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-xs text-red-400 font-medium">
+                      录音中...
+                    </span>
+                    {voice.interimTranscript && (
+                      <span className="text-sm text-white/80 truncate max-w-[200px]">
+                        "{voice.interimTranscript}"
+                      </span>
+                    )}
+                    <button
+                      onClick={handleVoiceClick}
+                      className="ml-auto text-xs text-red-400 hover:text-red-300"
+                    >
+                      点击停止
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Conversation Mode Panel - above the input */}
+              {conversationMode && (
+                <div className="absolute bottom-full left-0 right-0 mb-4">
+                  <VoicePanel
+                    onUserSpeech={handleConversationUserSpeech}
+                    onAssistantSpeech={handleConversationAssistantSpeech}
+                    enabled={isConnected && !isProcessing}
+                    showWaveform={true}
+                    autoContinue={true}
+                    interruptionEnabled={true}
+                  />
+                </div>
+              )}
 
               {/* Processing indicator */}
               {isProcessing && (
@@ -775,6 +1226,7 @@ Type \`/\` in the input to see all available CLI commands.
             <button
               type="submit"
               disabled={!inputText.trim() || !isConnected || isProcessing}
+              title="发送消息给 Claude (Enter)"
               className="h-[56px] w-[56px] rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:shadow-none group"
             >
               <Send className="w-5 h-5 text-white group-disabled:opacity-50" />
@@ -783,7 +1235,7 @@ Type \`/\` in the input to see all available CLI commands.
 
           {/* Hint */}
           <p className="text-center text-xs text-white/30 mt-4">
-            Press Enter to send • Shift+Enter for new line • Type / for commands • Click mic for voice
+            💡 Tips: Enter 发送 | Shift+Enter 换行 | 输入 / 显示 84 命令 | ⌨️ ⌘? 快捷键 | 🎤 语音填充输入框后手动发送 | 📊 Token统计
           </p>
         </div>
       </footer>
@@ -792,6 +1244,26 @@ Type \`/\` in the input to see all available CLI commands.
       <SkillManager
         isOpen={showSkillManager}
         onClose={() => setShowSkillManager(false)}
+      />
+
+      {/* Token Stats Modal */}
+      <TokenStats
+        isOpen={showTokenStats}
+        onClose={() => setShowTokenStats(false)}
+        tokenUsage={tokenUsage}
+      />
+
+      {/* Command Sidebar */}
+      <CommandSidebar
+        isOpen={showCommandSidebar}
+        onClose={() => setShowCommandSidebar(false)}
+        onCommandSelect={handleCommandSelect}
+      />
+
+      {/* Shortcuts Help Modal */}
+      <ShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
       />
     </div>
   );
