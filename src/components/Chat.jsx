@@ -25,6 +25,9 @@ import {
   Paperclip,
   Image,
   X,
+  StopCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 // Lazy load modal components (only loaded when needed)
@@ -47,7 +50,7 @@ import {
   loadConversations,
   saveConversations,
   getActiveConversationId,
-  setActiveConversationId,
+  setActiveConversationId as saveActiveConversationId,
   createConversation,
   getConversation,
   updateConversation,
@@ -64,7 +67,6 @@ function Chat() {
   const [activeConversationId, setActiveConversationId] = useState(() => {
     const saved = getActiveConversationId();
     if (saved) return saved;
-    // 如果没有保存的活动对话，创建一个新的
     return null;
   });
   const [showConversationList, setShowConversationList] = useState(true);
@@ -98,6 +100,19 @@ function Chat() {
     return [];
   });
 
+  // 应用启动时自动创建第一个对话（如果没有对话）
+  useEffect(() => {
+    if (conversations.length === 0) {
+      const newConv = createConversation();
+      const updated = [newConv];
+      setConversations(updated);
+      saveConversations(updated);
+      setActiveConversationId(newConv.id);
+      saveActiveConversationId(newConv.id);
+      logger.debug('Created initial conversation:', { id: newConv.id });
+    }
+  }, []);
+
   // Stream buffer for accumulating streaming content
   const streamBufferRef = useRef('');
   const [inputText, setInputText] = useState('');
@@ -124,7 +139,7 @@ function Chat() {
   const handleConversationSelect = useCallback(
     convId => {
       setActiveConversationId(convId);
-      setActiveConversationId(convId);
+      saveActiveConversationId(convId); // 同步到 localStorage
 
       // 加载对话的消息
       const conv = getConversation(conversations, convId);
@@ -164,7 +179,7 @@ function Chat() {
     setConversations(updated);
     saveConversations(updated);
     setActiveConversationId(newConv.id);
-    setActiveConversationId(newConv.id);
+    saveActiveConversationId(newConv.id);
     setMessages([]);
     setSessionId(null);
   }, [conversations]);
@@ -1444,13 +1459,31 @@ Type \`/\` in the input to see all available CLI commands.
         >
           <div className="text-[15px] whitespace-pre-wrap">{formatContent(msg.content)}</div>
 
-          {/* Message actions - speak button */}
+          {/* Message actions - speak and copy buttons */}
           {!isError && msg.content && msg.content.trim() && (
             <div className="flex justify-end mt-2 gap-2">
               {/* Sending indicator */}
               {isMsgSending && (
                 <span className="text-xs text-white/50 animate-pulse">发送中...</span>
               )}
+              {/* Copy button */}
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(msg.content);
+                  // Show feedback
+                  const btn = document.getElementById(`copy-btn-${index}`);
+                  if (btn) {
+                    btn.classList.add('text-green-400');
+                    setTimeout(() => btn.classList.remove('text-green-400'), 1500);
+                  }
+                }}
+                className="p-1 rounded transition-all text-white/30 hover:text-white/60 hover:bg-white/10"
+                title="复制内容"
+                id={`copy-btn-${index}`}
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+              {/* Speak button */}
               <button
                 onClick={() => handleSpeakMessage(msg.content)}
                 disabled={historyTTS.isSpeaking}
@@ -1575,6 +1608,28 @@ Type \`/\` in the input to see all available CLI commands.
                 <Volume2 className="w-4 h-4 text-purple-400 animate-pulse" />
                 <span className="text-sm text-purple-400">Speaking...</span>
               </div>
+            )}
+
+            {/* Stop button - show when any activity is happening */}
+            {(isProcessing || voice.isListening || voice.isSpeaking || conversationMode) && (
+              <button
+                onClick={() => {
+                  // Stop all processing
+                  setIsProcessing(false);
+                  streamBufferRef.current = '';
+                  // Stop voice
+                  if (voice.stopSpeaking) voice.stopSpeaking();
+                  if (voice.stopListening) voice.stopListening();
+                  // Stop conversation mode
+                  if (conversationMode) setConversationMode(false);
+                  // Stop history TTS
+                  historyTTS.stop();
+                }}
+                className="p-3 rounded-2xl bg-gradient-to-r from-red-500 to-orange-500 backdrop-blur-xl border border-red-500/50 hover:from-red-600 hover:to-orange-600 transition-all duration-200 shadow-lg shadow-red-500/30 animate-pulse"
+                title="⏹️ 停止 - 终止当前对话、语音输入/输出"
+              >
+                <StopCircle className="w-5 h-5 text-white" />
+              </button>
             )}
 
             {/* New session button */}
