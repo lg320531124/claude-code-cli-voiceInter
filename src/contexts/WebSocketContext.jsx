@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useRef, useState, useEffect, useMemo, useCallback } from 'react';
 
 const WebSocketContext = createContext(null);
 
@@ -19,16 +19,84 @@ function buildWebSocketUrl() {
 }
 
 /**
- * WebSocket Provider Hook
+ * WebSocket Provider Hook with enhanced connection quality and adaptive reconnect
  */
 function useWebSocketProvider() {
   const wsRef = useRef(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionQuality, setConnectionQuality] = useState('未知');
   const [latestMessage, setLatestMessage] = useState(null);
   const reconnectTimeoutRef = useRef(null);
+  const messageQueueRef = useRef([]);
+  const processingQueueRef = useRef(false);
+  const pingLatenciesRef = useRef([]);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 5;
+
+  // Measure connection latency
+  const measureLatency = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const startTime = Date.now();
+    wsRef.current.send(JSON.stringify({ type: 'ping', timestamp: startTime }));
+  }, []);
+
+  // Calculate connection quality from latency measurements
+  const updateConnectionQuality = useCallback(() => {
+    if (pingLatenciesRef.current.length === 0) return;
+
+    const avgLatency = pingLatenciesRef.current.reduce((a, b) => a + b, 0) / pingLatenciesRef.current.length;
+
+    const quality = avgLatency < 50 ? '优秀' :
+                    avgLatency < 100 ? '良好' :
+                    avgLatency < 200 ? '一般' : '较差';
+    setConnectionQuality(quality);
+  }, []);
+
+  // Adaptive reconnect with exponential backoff
+  const reconnect = useCallback(() => {
+    reconnectAttemptsRef.current++;
+    if (reconnectAttemptsRef.current > maxReconnectAttempts) {
+      console.log('[WS] Max reconnect attempts reached');
+      setConnectionQuality('离线');
+      return;
+    }
+
+    const delay = Math.min(
+      1000 * Math.pow(2, reconnectAttemptsRef.current), // 指数退避
+      30000 // 最大30秒
+    );
+
+    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      connect();
+    }, delay);
+  }, []);
+
+  // Process message queue one by one to ensure all messages are handled
+  const processQueue = () => {
+    if (processingQueueRef.current || messageQueueRef.current.length === 0) {
+      return;
+    }
+
+    processingQueueRef.current = true;
+    const message = messageQueueRef.current.shift();
+
+    // Use requestAnimationFrame to ensure React state update completes
+    requestAnimationFrame(() => {
+      setLatestMessage(message);
+      processingQueueRef.current = false;
+
+      // Process next message if queue not empty
+      if (messageQueueRef.current.length > 0) {
+        processQueue();
+      }
+    });
+  };
 
   // Connect to WebSocket
-  const connect = () => {
+  const connect = useCallback(() => {
     try {
       const wsUrl = buildWebSocketUrl();
       console.log('[WS] Connecting to:', wsUrl);
@@ -39,6 +107,7 @@ function useWebSocketProvider() {
       ws.onopen = () => {
         console.log('[WS] Connected');
         setIsConnected(true);
+        reconnectAttemptsRef.current = 0; // Reset reconnect attempts
         // Clear reconnect timeout
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
@@ -49,8 +118,24 @@ function useWebSocketProvider() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // Handle pong for latency measurement
+          if (data.type === 'pong') {
+            const latency = Date.now() - (data.timestamp || Date.now());
+            pingLatenciesRef.current.push(latency);
+            // Keep last 10 measurements
+            if (pingLatenciesRef.current.length > 10) {
+              pingLatenciesRef.current.shift();
+            }
+            updateConnectionQuality();
+            return;
+          }
+
           console.log('[WS] Received:', data.type);
-          setLatestMessage(data);
+
+          // Add to queue and process
+          messageQueueRef.current.push(data);
+          processQueue();
         } catch (error) {
           console.error('[WS] Parse error:', error);
         }
@@ -59,15 +144,11 @@ function useWebSocketProvider() {
       ws.onclose = () => {
         console.log('[WS] Disconnected');
         setIsConnected(false);
+        setConnectionQuality('离线');
         wsRef.current = null;
 
-        // Auto reconnect after 3 seconds
-        if (!reconnectTimeoutRef.current) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('[WS] Reconnecting...');
-            connect();
-          }, 3000);
-        }
+        // Adaptive reconnect
+        reconnect();
       };
 
       ws.onerror = (error) => {
@@ -76,8 +157,9 @@ function useWebSocketProvider() {
 
     } catch (error) {
       console.error('[WS] Connection error:', error);
+      reconnect();
     }
-  };
+  }, [reconnect, updateConnectionQuality]);
 
   // Send message
   const sendMessage = (message) => {
@@ -88,16 +170,16 @@ function useWebSocketProvider() {
     }
   };
 
-  // Ping interval to keep connection alive
+  // Ping interval to keep connection alive and measure latency
   useEffect(() => {
     const pingInterval = setInterval(() => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'ping' }));
+        measureLatency();
       }
     }, 15000);
 
     return () => clearInterval(pingInterval);
-  }, [isConnected]);
+  }, [isConnected, measureLatency]);
 
   // Connect on mount
   useEffect(() => {
@@ -116,9 +198,10 @@ function useWebSocketProvider() {
   const value = useMemo(() => ({
     ws: wsRef.current,
     isConnected,
+    connectionQuality,
     sendMessage,
     latestMessage
-  }), [isConnected, latestMessage]);
+  }), [isConnected, connectionQuality, latestMessage]);
 
   return value;
 }
