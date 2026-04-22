@@ -10,6 +10,7 @@ import ShortcutsHelp from './ShortcutsHelp';
 import VoicePanel, { useVoicePanelRef } from './VoicePanel';
 import ExportPanel from './ExportPanel';
 import ConversationList from './ConversationList';
+import RealtimeSubtitles, { SubtitlesControl } from './RealtimeSubtitles';
 import { useHybridTTS } from '../hooks/useHybridTTS';
 import { shortcuts, shortcutActions } from '../config/shortcuts';
 import {
@@ -127,6 +128,14 @@ function Chat() {
   const [fastMode, setFastMode] = useState(false);
   const [conversationMode, setConversationMode] = useState(false);  // 双向对话模式
   const voicePanelRef = useVoicePanelRef();
+
+  // 实时字幕控制
+  const [showSubtitles, setShowSubtitles] = useState(false);
+  const [subtitlePosition, setSubtitlePosition] = useState('bottom');
+  const [showSubtitleInterim, setShowSubtitleInterim] = useState(true);
+  const [currentTtsText, setCurrentTtsText] = useState('');
+  const [currentSttText, setCurrentSttText] = useState('');
+
   const [currentModel, setCurrentModel] = useState('sonnet');
   const [effortLevel, setEffortLevel] = useState('medium');
 
@@ -273,6 +282,8 @@ function Chat() {
       const content = latestMessage.content || '';
       if (content) {
         streamBufferRef.current += content;
+        // 更新字幕文本 (流式响应)
+        setCurrentTtsText(streamBufferRef.current);
         // Update UI with streaming content
         setMessages(prev => {
           const lastMsg = prev[prev.length - 1];
@@ -302,6 +313,8 @@ function Chat() {
           console.log('[Chat] Adding assistant message:', content.substring(0, 50));
           return [...prev, { role: 'assistant', content }];
         });
+        // 更新字幕文本
+        setCurrentTtsText(content);
         // 自动朗读响应
         if (voice.isSupported && voice.isSpeaking === false) {
           voice.speak(content);
@@ -617,6 +630,7 @@ function Chat() {
   // Handle user speech in conversation mode
   const handleConversationUserSpeech = (text) => {
     if (text.trim()) {
+      setCurrentSttText(text);
       sendToClaude(text);
     }
   };
@@ -624,6 +638,7 @@ function Chat() {
   // Handle assistant speech in conversation mode
   const handleConversationAssistantSpeech = (text) => {
     console.log('[Conversation] Assistant said:', text.substring(0, 50));
+    setCurrentTtsText(text);
   };
 
   // Handle command palette selection
@@ -1264,6 +1279,16 @@ Type \`/\` in the input to see all available CLI commands.
           >
             <Keyboard className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
           </button>
+
+          {/* Subtitles Control */}
+          <SubtitlesControl
+            enabled={showSubtitles}
+            onToggle={setShowSubtitles}
+            position={subtitlePosition}
+            onPositionChange={setSubtitlePosition}
+            showInterim={showSubtitleInterim}
+            onShowInterimChange={setShowSubtitleInterim}
+          />
         </div>
       </header>
 
@@ -1412,6 +1437,7 @@ Type \`/\` in the input to see all available CLI commands.
                   <VoicePanel
                     onUserSpeech={handleConversationUserSpeech}
                     onAssistantSpeech={handleConversationAssistantSpeech}
+                    onInterimTranscript={setCurrentSttText}
                     enabled={isConnected && !isProcessing}
                     showWaveform={true}
                     autoContinue={true}
@@ -1486,6 +1512,18 @@ Type \`/\` in the input to see all available CLI commands.
       <ShortcutsHelp
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
+      />
+
+      {/* Realtime Subtitles */}
+      <RealtimeSubtitles
+        sttText={currentSttText}
+        ttsText={currentTtsText}
+        isListening={voice.isListening}
+        isSpeaking={voice.isSpeaking}
+        enabled={showSubtitles}
+        position={subtitlePosition}
+        showInterim={showSubtitleInterim}
+        onClose={() => setShowSubtitles(false)}
       />
     </div>
   );

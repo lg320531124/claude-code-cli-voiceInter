@@ -21,6 +21,7 @@ import { getSTTLanguageCode, getTTSLanguageCode } from '../utils/languageDetecti
 function VoicePanel({
   onUserSpeech,
   onAssistantSpeech,
+  onInterimTranscript,  // 中间转录文本回调
   enabled = true,
   showWaveform = true,
   autoContinue = true,
@@ -84,6 +85,13 @@ function VoicePanel({
     setLanguage(newLanguage);
     console.log('[VoicePanel] 语言切换:', newLanguage);
   }, []);
+
+  // 传递中间转录文本到父组件
+  useEffect(() => {
+    if (onInterimTranscript && voice.interimTranscript) {
+      onInterimTranscript(voice.interimTranscript);
+    }
+  }, [voice.interimTranscript, onInterimTranscript]);
 
   // 处理速度变化
   const handleSpeedChange = useCallback((newSpeed) => {
