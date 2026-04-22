@@ -14,7 +14,9 @@ import { useHybridTTS } from '../hooks/useHybridTTS';
 import VoiceWaveform from './VoiceWaveform';
 import ErrorToast from './ErrorToast';
 import TTSSettings from './TTSSettings';
+import LanguageSelector from './LanguageSelector';
 import { getErrorInfo } from '../utils/voiceErrors';
+import { getSTTLanguageCode, getTTSLanguageCode } from '../utils/languageDetection';
 
 function VoicePanel({
   onUserSpeech,
@@ -30,10 +32,11 @@ function VoicePanel({
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
   const [ttsVoice, setTtsVoice] = useState('af_sky');
   const [browserVoices, setBrowserVoices] = useState([]);
+  const [language, setLanguage] = useState('auto');
 
   // 双向对话 hook
   const voice = useBidirectionalVoice({
-    language: 'auto',
+    language: getSTTLanguageCode(language),
     voice: ttsVoice,
     autoContinue,
     interruptionEnabled,
@@ -68,13 +71,19 @@ function VoicePanel({
   const hybridTTS = useHybridTTS({
     voice: ttsVoice,
     speed: ttsSpeed,
-    language: 'zh-CN',
+    language: getTTSLanguageCode(language),
     preferKokoro: ttsMode !== 'browser',
     onModeChange: (mode) => {
       setTtsMode(mode);
       console.log('[VoicePanel] TTS 模式切换:', mode);
     }
   });
+
+  // 处理语言变化
+  const handleLanguageChange = useCallback((newLanguage) => {
+    setLanguage(newLanguage);
+    console.log('[VoicePanel] 语言切换:', newLanguage);
+  }, []);
 
   // 处理速度变化
   const handleSpeedChange = useCallback((newSpeed) => {
@@ -297,6 +306,16 @@ function VoicePanel({
                 checked={showWaveform}
                 onChange={() => {}}
                 className="w-4 h-4 accent-purple-500"
+              />
+            </div>
+
+            {/* 语言选择 */}
+            <div className="mt-3 pt-3 border-t border-gray-700">
+              <LanguageSelector
+                currentLanguage={language}
+                onLanguageChange={handleLanguageChange}
+                showAutoDetect={true}
+                compact={false}
               />
             </div>
 
