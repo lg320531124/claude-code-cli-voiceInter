@@ -3,13 +3,14 @@
 // 语音控制面板 - 集成所有语音功能
 // - 波形动画显示
 // - 双向对话模式切换
+// - 混合 TTS (Kokoro + Browser Fallback)
 // - 错误提示
 // - 音量级别显示
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Radio, Settings, X, RefreshCw } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Radio, Settings, X, RefreshCw, Speaker } from 'lucide-react';
 import { useBidirectionalVoice } from '../hooks/useEnhancedVoice';
-import { useLocalKokoro } from '../hooks/useLocalVoice';
+import { useHybridTTS } from '../hooks/useHybridTTS';
 import VoiceWaveform from './VoiceWaveform';
 import ErrorToast from './ErrorToast';
 import { getErrorInfo } from '../utils/voiceErrors';
@@ -24,6 +25,7 @@ function VoicePanel({
 }) {
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [ttsMode, setTtsMode] = useState(null); // 'kokoro' | 'browser'
 
   // 双向对话 hook
   const voice = useBidirectionalVoice({
@@ -46,14 +48,32 @@ function VoicePanel({
     }
   });
 
-  // 处理错误
+  // 混合 TTS hook (Kokoro + Browser Fallback)
+  const hybridTTS = useHybridTTS({
+    voice: 'af_sky',
+    speed: 1.0,
+    language: 'zh-CN',
+    preferKokoro: true,
+    onModeChange: (mode) => {
+      setTtsMode(mode);
+      console.log('[VoicePanel] TTS 模式切换:', mode);
+    }
+  });
+
+  // 处理错误 - 更智能的错误处理
   useEffect(() => {
     if (voice.sttReady === false && voice.isConversationActive) {
       setError('whisper-offline');
-    } else if (voice.ttsReady === false && voice.isConversationActive) {
-      setError('kokoro-offline');
     }
-  }, [voice.sttReady, voice.ttsReady, voice.isConversationActive]);
+    // TTS 有了 fallback，不再显示 kokoro-offline 错误
+  }, [voice.sttReady, voice.isConversationActive]);
+
+  // 使用混合 TTS 播放响应
+  const speakResponseWithFallback = useCallback(async (text) => {
+    if (!text || !text.trim()) return;
+    hybridTTS.speak(text);
+    onAssistantSpeech?.(text);
+  }, [hybridTTS, onAssistantSpeech]);
 
   // 开始对话
   const handleStartConversation = useCallback(() => {
@@ -80,10 +100,11 @@ function VoicePanel({
   }, [voice]);
 
   // 服务状态指示器
-  const ServiceIndicator = ({ name, ready }) => (
-    <div className={`flex items-center gap-1 text-xs ${ready ? 'text-green-400' : 'text-red-400'}`}>
-      <span className={`w-2 h-2 rounded-full ${ready ? 'bg-green-400' : 'bg-red-400'}`}></span>
+  const ServiceIndicator = ({ name, ready, mode }) => (
+    <div className={`flex items-center gap-1 text-xs ${ready ? 'text-green-400' : 'text-yellow-400'}`}>
+      <span className={`w-2 h-2 rounded-full ${ready ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
       {name}
+      {mode && <span className="text-gray-400 ml-1">({mode})</span>}
     </div>
   );
 
@@ -117,7 +138,11 @@ function VoicePanel({
         <div className="flex justify-between items-center mb-3">
           <div className="flex gap-4">
             <ServiceIndicator name="Whisper" ready={voice.sttReady} />
-            <ServiceIndicator name="Kokoro" ready={voice.ttsReady} />
+            <ServiceIndicator
+              name="TTS"
+              ready={hybridTTS.isSupported}
+              mode={ttsMode === 'kokoro' ? 'Kokoro' : ttsMode === 'browser' ? '浏览器' : '检测中'}
+            />
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -242,6 +267,42 @@ function VoicePanel({
                 onChange={() => {}}
                 className="w-4 h-4 accent-purple-500"
               />
+            </div>
+
+            {/* TTS 模式选择 */}
+            <div className="mt-3 pt-2 border-t border-gray-700">
+              <div className="flex items-center gap-2 mb-2">
+                <Speaker className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-300">语音合成模式</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => hybridTTS.switchMode('kokoro')}
+                  disabled={!hybridTTS.kokoroReady}
+                  className={`flex-1 py-1 px-2 rounded text-xs ${
+                    ttsMode === 'kokoro'
+                      ? 'bg-purple-500 text-white'
+                      : hybridTTS.kokoroReady
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  Kokoro {hybridTTS.kokoroReady ? '' : '(离线)'}
+                </button>
+                <button
+                  onClick={() => hybridTTS.switchMode('browser')}
+                  disabled={!hybridTTS.browserReady}
+                  className={`flex-1 py-1 px-2 rounded text-xs ${
+                    ttsMode === 'browser'
+                      ? 'bg-purple-500 text-white'
+                      : hybridTTS.browserReady
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  浏览器
+                </button>
+              </div>
             </div>
           </div>
         )}
