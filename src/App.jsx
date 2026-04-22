@@ -1,12 +1,15 @@
 import React from 'react';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import Chat from './components/Chat';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   return (
-    <WebSocketProvider>
-      <Chat />
-    </WebSocketProvider>
+    <ErrorBoundary>
+      <WebSocketProvider>
+        <Chat />
+      </WebSocketProvider>
+    </ErrorBoundary>
   );
 }
 

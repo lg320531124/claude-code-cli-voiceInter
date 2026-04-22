@@ -17,7 +17,11 @@
     "dev:lan": "HOST=0.0.0.0 concurrently \"node server/index.js\" \"vite --host\"",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src server",
+    "lint:fix": "eslint src server --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx}\" \"server/**/*.js\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx}\" \"server/**/*.js\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
@@ -34,13 +38,18 @@
     "ws": "^8.14.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^4.0.0",
     "@vitest/ui": "^4.1.5",
     "concurrently": "^8.2.2",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "happy-dom": "^20.9.0",
     "jsdom": "^29.0.2",
+    "prettier": "^3.8.3",
     "vite": "^5.0.0",
     "vitest": "^4.1.5"
   },
