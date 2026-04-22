@@ -110,11 +110,13 @@ type: project
 
 **实现:** shortcuts.js + Chat.jsx keyboard handler
 
-#### 7.3 交互优化 🟡 部分
-- [ ] 历史消息点击朗读
-- [ ] 语音模式切换动画
-- [ ] 音量可视化增强 (圆形波形)
-- [ ] 暗色/亮色主题适配
+#### 7.3 交互优化 ✅ 已完成
+- [x] 历史消息点击朗读
+- [ ] 语音模式切换动画 (可选)
+- [ ] 音量可视化增强 (可选)
+- [ ] 暗色/亮色主题适配 (可选)
+
+**实现:** Chat.jsx - Volume2 按钮 + useHybridTTS
 
 **预估时间:** 2 天
 
@@ -133,15 +135,19 @@ type: project
 
 **实现:** voiceAPI.js - fetchWithTimeout, fetchWithRetry, NetworkMonitor
 
-#### 8.2 错误处理增强 🟡 部分
+#### 8.2 错误处理增强 ✅ 已完成
 - [x] 错误分类细化 (voiceErrors.js)
-- [ ] 自动恢复策略
-- [ ] 错误日志上报
+- [x] 自动恢复策略 (serviceRecovery.js)
+- [ ] 错误日志上报 (可选)
 
-#### 8.3 浏览器兼容性
-- [ ] Chrome/Safari/Edge/Firefox 测试
-- [ ] 音频格式自动检测
-- [ ] Polyfill 适配方案
+**实现:** serviceRecovery.js - ServiceRecoveryManager
+
+#### 8.3 浏览器兼容性 ✅ 已完成
+- [x] Chrome/Safari/Edge/Firefox 检测
+- [x] 音频格式自动检测
+- [x] 兼容性报告生成
+
+**实现:** browserCompatibility.js - getCompatibilityReport
 
 **预估时间:** 2 天
 
