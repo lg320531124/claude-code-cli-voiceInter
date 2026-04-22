@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
-import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio } from 'lucide-react';
+import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio, Download } from 'lucide-react';
 import SkillManager from './SkillManager';
 import CommandPalette from './CommandPalette';
 import TokenStats from './TokenStats';
 import CommandSidebar from './CommandSidebar';
 import ShortcutsHelp from './ShortcutsHelp';
 import VoicePanel, { useVoicePanelRef } from './VoicePanel';
+import ExportPanel from './ExportPanel';
 import { useHybridTTS } from '../hooks/useHybridTTS';
 import { shortcuts, shortcutActions } from '../config/shortcuts';
 
@@ -41,6 +42,7 @@ function Chat() {
   const [showTokenStats, setShowTokenStats] = useState(false);
   const [showCommandSidebar, setShowCommandSidebar] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [showExportPanel, setShowExportPanel] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
   const [fastMode, setFastMode] = useState(false);
   const [conversationMode, setConversationMode] = useState(false);  // 双向对话模式
@@ -1126,6 +1128,16 @@ Type \`/\` in the input to see all available CLI commands.
             )}
           </button>
 
+          {/* Export button */}
+          <button
+            onClick={() => setShowExportPanel(true)}
+            disabled={messages.length === 0}
+            className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 disabled:opacity-50 group"
+            title="💾 导出对话 - 下载对话记录为 JSON/Markdown/TXT"
+          >
+            <Download className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+          </button>
+
           {/* CLI Commands button */}
           <button
             onClick={() => setShowCommandSidebar(!showCommandSidebar)}
@@ -1346,6 +1358,16 @@ Type \`/\` in the input to see all available CLI commands.
         onClose={() => setShowTokenStats(false)}
         tokenUsage={tokenUsage}
       />
+
+      {/* Export Panel */}
+      {showExportPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <ExportPanel
+            messages={messages}
+            onClose={() => setShowExportPanel(false)}
+          />
+        </div>
+      )}
 
       {/* Command Sidebar */}
       <CommandSidebar
