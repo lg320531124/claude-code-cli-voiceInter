@@ -32,21 +32,30 @@ type: project
 ### 文件结构
 
 ```
-新增文件 (Phase 1-5):
+新增文件 (Phase 1-10):
 ├── server/index.js           - 添加 /api/voice/* 端点
 ├── src/hooks/
 │   ├── useLocalVoice.js      - 本地语音 hooks (STT/TTS)
-│   └── useEnhancedVoice.js   - 增强版 hooks (流式/打断/双向)
+│   ├── useEnhancedVoice.js   - 增强版 hooks (流式/打断/双向)
+│   └── useHybridTTS.js       - 混合 TTS (Kokoro + Browser Fallback + 缓存)
 ├── src/components/
 │   ├── VoiceWaveform.jsx     - 波形动画
 │   ├── ErrorToast.jsx        - 错误提示
-│   └── VoicePanel.jsx        - 语音控制面板
+│   ├── VoicePanel.jsx        - 语音控制面板 (集成 TTS 定制)
+│   ├── VoiceStatusIndicator.jsx - 详细状态提示
+│   └── TTSSettings.jsx       - TTS 定制设置面板
 ├── src/utils/
 │   ├── voiceErrors.js        - 错误分类
-│   └── messageCache.js       - IndexedDB 缓存
+│   ├── messageCache.js       - IndexedDB 消息缓存
+│   ├── voiceAPI.js           - 网络层 (超时/重试)
+│   ├── serviceRecovery.js    - 服务自动恢复
+│   ├── browserCompatibility.js - 浏览器兼容检测
+│   └── ttsCache.js           - TTS 音频缓存 (Phase 9.2)
 ├── src/contexts/
 │   └── WebSocketContext.jsx  - 增强 WebSocket
-└── package.json              - multer, dev:lan 腊本
+├── src/config/
+│   └── shortcuts.js          - 键盘快捷键配置
+└── package.json              - multer, dev:lan 脚本
 ```
 
 ---
@@ -153,7 +162,7 @@ type: project
 
 ---
 
-### Phase 9: 性能优化 (低优先级)
+### Phase 9: 性能优化 (低优先级) ✅ 部分完成
 
 **目标:** 提升响应速度，减少资源消耗
 
@@ -164,10 +173,12 @@ type: project
 - [ ] WebWorker 音频处理
 - [ ] 采样率动态调整
 
-#### 9.2 缓存策略
-- [ ] TTS 音频预缓存
-- [ ] 常用短语缓存
-- [ ] 缓存过期策略
+#### 9.2 缓存策略 ✅ 已完成
+- [x] TTS 音频预缓存
+- [x] 常用短语缓存
+- [x] 缓存过期策略
+
+**实现:** ttsCache.js - 内存 + IndexedDB 双层缓存
 
 #### 9.3 资源管理
 - [ ] 内存使用监控
@@ -178,7 +189,7 @@ type: project
 
 ---
 
-### Phase 10: 功能扩展 (低优先级)
+### Phase 10: 功能扩展 (低优先级) ✅ 部分完成
 
 **目标:** 提供更多定制选项和高级功能
 
@@ -189,10 +200,12 @@ type: project
 - [ ] 中英文混合处理
 - [ ] 语言切换 UI
 
-#### 10.2 TTS 定制
-- [ ] 语音速度调节
-- [ ] 音调调节
-- [ ] 多声音选择
+#### 10.2 TTS 定制 ✅ 已完成
+- [x] 语音速度调节
+- [x] 多声音选择
+- [x] 测试语音按钮
+
+**实现:** TTSSettings.jsx - 速度滑块 + 声音选择 + 测试功能
 
 #### 10.3 高级功能
 - [ ] 实时字幕模式
@@ -210,15 +223,15 @@ type: project
 优先级矩阵:
 
 高优先级 (必须修复):
-├── Phase 6: Kokoro TTS 修复 ───────────────────── 🔴 阻塞
+├── Phase 6: Kokoro TTS 修复 ───────────────────── ✅ 完成
 
 中优先级 (显著提升体验):
-├── Phase 7: 前端体验优化 ──────────────────────── 🟡 重要
-├── Phase 8: 稳定性增强 ────────────────────────── 🟡 重要
+├── Phase 7: 前端体验优化 ──────────────────────── ✅ 完成
+├── Phase 8: 稳定性增强 ────────────────────────── ✅ 完成
 
 低优先级 (锦上添花):
-├── Phase 9: 性能优化 ──────────────────────────── 🟢 可选
-├── Phase 10: 功能扩展 ─────────────────────────── 🟢 可选
+├── Phase 9: 性能优化 ──────────────────────────── ✅ 部分完成 (缓存已实现)
+├── Phase 10: 功能扩展 ─────────────────────────── ✅ 部分完成 (TTS 定制已实现)
 ```
 
 ---
@@ -329,4 +342,6 @@ TTS_ERRORS:
 
 **文档维护:** 每完成一个 Phase 后更新状态标记
 
-**下一步行动:** 开始 Phase 6 - Kokoro TTS 修复
+**下一步行动:** 
+- Phase 9.1/9.3: 音频处理优化和资源管理 (可选)
+- Phase 10.1/10.3: 语言支持和高级功能 (可选)
