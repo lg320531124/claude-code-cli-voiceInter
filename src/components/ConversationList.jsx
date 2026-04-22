@@ -8,7 +8,18 @@
 // - 对话统计显示
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, MessageSquare, Search, Clock, MoreHorizontal, Edit3, Check, X, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  MessageSquare,
+  Search,
+  Clock,
+  MoreHorizontal,
+  Edit3,
+  Check,
+  X,
+  Loader2,
+} from 'lucide-react';
 import {
   createConversation,
   loadConversations,
@@ -18,7 +29,7 @@ import {
   deleteConversation,
   renameConversation,
   getConversationStats,
-  searchConversations
+  searchConversations,
 } from '../utils/conversationManager';
 
 function ConversationList({
@@ -26,7 +37,7 @@ function ConversationList({
   onConversationSelect,
   onConversationCreate,
   onConversationDelete,
-  collapsed = false
+  collapsed = false,
 }) {
   const [conversations, setConversations] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,12 +75,12 @@ function ConversationList({
   };
 
   // 删除对话 - 添加确认步骤
-  const handleDeleteClick = (id) => {
+  const handleDeleteClick = id => {
     setDeleteConfirmId(id);
     setShowMenuId(null);
   };
 
-  const handleDeleteConfirm = (id) => {
+  const handleDeleteConfirm = id => {
     const updated = deleteConversation(conversations, id);
     setConversations(updated);
 
@@ -89,7 +100,7 @@ function ConversationList({
   };
 
   // 开始重命名
-  const handleStartRename = (conv) => {
+  const handleStartRename = conv => {
     setEditingId(conv.id);
     setEditingTitle(conv.title);
     setShowMenuId(null);
@@ -112,7 +123,7 @@ function ConversationList({
   };
 
   // 切换对话 - 添加切换动画
-  const handleConversationClick = (id) => {
+  const handleConversationClick = id => {
     if (editingId === id || deleteConfirmId === id) return;
 
     setSwitchingToId(id);
@@ -128,7 +139,7 @@ function ConversationList({
     : conversations;
 
   // 格式化时间
-  const formatTime = (timestamp) => {
+  const formatTime = timestamp => {
     const date = new Date(timestamp);
     const now = new Date();
     const diff = now - date;
@@ -154,16 +165,12 @@ function ConversationList({
           }`}
           title="新建对话"
         >
-          {isCreating ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <Plus className="w-5 h-5" />
-          )}
+          {isCreating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
         </button>
 
         {/* 对话图标列表 */}
         <div className="flex-1 overflow-y-auto py-2 space-y-1">
-          {filteredConversations.slice(0, 10).map((conv) => (
+          {filteredConversations.slice(0, 10).map(conv => (
             <button
               key={conv.id}
               onClick={() => handleConversationClick(conv.id)}
@@ -172,8 +179,8 @@ function ConversationList({
                 switchingToId === conv.id
                   ? 'opacity-50 scale-90'
                   : activeConversationId === conv.id
-                  ? 'bg-purple-500/30 text-purple-400'
-                  : 'text-gray-400 hover:bg-gray-800'
+                    ? 'bg-purple-500/30 text-purple-400'
+                    : 'text-gray-400 hover:bg-gray-800'
               }`}
               title={conv.title}
             >
@@ -185,9 +192,9 @@ function ConversationList({
     );
   }
 
-  // 完整模式
+  // 完整模式 - 固定左侧栏
   return (
-    <div className="w-64 bg-gray-900/50 border-r border-gray-800 flex flex-col">
+    <div className="fixed left-0 top-0 bottom-0 w-64 bg-gray-900/95 backdrop-blur-xl border-r border-gray-800 flex flex-col z-30">
       {/* 头部 */}
       <div className="p-3 border-b border-gray-800">
         <div className="flex items-center justify-between mb-2">
@@ -216,7 +223,7 @@ function ConversationList({
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={e => setSearchQuery(e.target.value)}
             placeholder="搜索对话..."
             className="w-full pl-6 pr-2 py-1 rounded bg-gray-800 text-gray-300 text-xs border border-gray-700 focus:border-purple-500 focus:outline-none"
           />
@@ -230,16 +237,12 @@ function ConversationList({
             {searchQuery ? '未找到匹配的对话' : '暂无对话'}
           </div>
         ) : (
-          filteredConversations.map((conv) => (
+          filteredConversations.map(conv => (
             <div
               key={conv.id}
               className={`group relative p-3 border-b border-gray-800/50 cursor-pointer transition-all duration-150 ${
                 switchingToId === conv.id ? 'opacity-50 scale-95' : ''
-              } ${
-                activeConversationId === conv.id
-                  ? 'bg-purple-500/10'
-                  : 'hover:bg-gray-800/30'
-              }`}
+              } ${activeConversationId === conv.id ? 'bg-purple-500/10' : 'hover:bg-gray-800/30'}`}
               onClick={() => handleConversationClick(conv.id)}
             >
               {/* 删除确认模式 */}
@@ -248,7 +251,7 @@ function ConversationList({
                   <span className="text-sm text-red-400">确认删除?</span>
                   <div className="flex gap-1">
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         handleDeleteConfirm(conv.id);
                       }}
@@ -257,7 +260,7 @@ function ConversationList({
                       删除
                     </button>
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         handleDeleteCancel();
                       }}
@@ -272,7 +275,7 @@ function ConversationList({
                   <input
                     type="text"
                     value={editingTitle}
-                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onChange={e => setEditingTitle(e.target.value)}
                     className="flex-1 px-2 py-1 rounded bg-gray-800 text-gray-300 text-sm border border-purple-500 focus:outline-none"
                     autoFocus
                   />
@@ -293,12 +296,16 @@ function ConversationList({
                 <>
                   {/* 标题 */}
                   <div className="flex items-center gap-2">
-                    <MessageSquare className={`w-4 h-4 ${
-                      activeConversationId === conv.id ? 'text-purple-400' : 'text-gray-500'
-                    }`} />
-                    <span className={`text-sm truncate ${
-                      activeConversationId === conv.id ? 'text-purple-300' : 'text-gray-300'
-                    }`}>
+                    <MessageSquare
+                      className={`w-4 h-4 ${
+                        activeConversationId === conv.id ? 'text-purple-400' : 'text-gray-500'
+                      }`}
+                    />
+                    <span
+                      className={`text-sm truncate ${
+                        activeConversationId === conv.id ? 'text-purple-300' : 'text-gray-300'
+                      }`}
+                    >
                       {conv.title}
                     </span>
                   </div>
@@ -312,7 +319,7 @@ function ConversationList({
 
                   {/* 操作菜单 */}
                   <button
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       setShowMenuId(showMenuId === conv.id ? null : conv.id);
                     }}
@@ -325,7 +332,7 @@ function ConversationList({
                   {showMenuId === conv.id && (
                     <div className="absolute right-2 top-6 bg-gray-800 rounded shadow-xl border border-gray-700 py-1 z-10">
                       <button
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           handleStartRename(conv);
                         }}
@@ -335,7 +342,7 @@ function ConversationList({
                         重命名
                       </button>
                       <button
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           handleDeleteClick(conv.id);
                         }}
