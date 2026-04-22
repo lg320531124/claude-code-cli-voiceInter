@@ -761,6 +761,29 @@ function Chat() {
       case 'reload':
         window.location.reload();
         break;
+      // Voice shortcuts
+      case 'toggle-voice-input':
+        if (!conversationMode) {
+          handleVoiceClick();
+        }
+        break;
+      case 'toggle-conversation-mode':
+        handleConversationModeClick();
+        break;
+      case 'quick-voice-start':
+        if (!conversationMode && !voice.isListening) {
+          handleConversationModeClick();
+        }
+        break;
+      case 'stop-voice-all':
+        if (conversationMode) {
+          handleConversationModeClick(); // Stop conversation mode
+        } else if (voice.isListening) {
+          voice.stopListening?.();
+        } else if (voice.isSpeaking) {
+          voice.stopSpeaking?.();
+        }
+        break;
       default:
         console.log('Unknown shortcut action:', action);
     }
@@ -769,20 +792,50 @@ function Chat() {
   // Global keyboard shortcuts handler
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
-      // Don't trigger shortcuts when typing in input
-      if (document.activeElement === inputRef.current && inputText.length > 0 && !inputText.startsWith('/')) {
-        return;
-      }
-
-      // Check for keyboard shortcuts
+      // Don't trigger shortcuts when typing in input (except for specific voice shortcuts)
+      const isTypingInInput = document.activeElement === inputRef.current && inputText.length > 0 && !inputText.startsWith('/');
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const modifierKey = isMac ? e.metaKey : e.ctrlKey;
 
-      // Handle modifier + key combinations
+      // Voice shortcuts - always active
       if (modifierKey) {
         const key = e.key.toUpperCase();
+
+        // Ctrl+V (toggle voice input)
+        if (key === 'V' && !e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('toggle-voice-input');
+          return;
+        }
+
+        // Ctrl+Shift+V (toggle conversation mode)
+        if (key === 'V' && e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('toggle-conversation-mode');
+          return;
+        }
+
+        // Ctrl+Space (quick voice start)
+        if (e.code === 'Space') {
+          e.preventDefault();
+          executeShortcutAction('quick-voice-start');
+          return;
+        }
+
+        // Ctrl+Shift+S (stop all voice)
+        if (key === 'S' && e.shiftKey) {
+          e.preventDefault();
+          executeShortcutAction('stop-voice-all');
+          return;
+        }
+
+        // Other shortcuts - skip if typing
+        if (isTypingInInput) {
+          return;
+        }
+
         const shortcut = shortcuts.find(s => {
-          const shortcutKey = s.key.replace('Ctrl+', '').replace('⌘', '');
+          const shortcutKey = s.key.replace('Ctrl+', '').replace('Ctrl+Shift+', '').replace('⌘', '').replace('⌘⇧', '');
           return shortcutKey === key;
         });
 
@@ -792,16 +845,21 @@ function Chat() {
         }
       }
 
-      // Handle Escape key
+      // Handle Escape key - stop voice operations first
       if (e.key === 'Escape') {
         e.preventDefault();
-        executeShortcutAction('escape');
+        // If voice is active, stop it first
+        if (conversationMode || voice.isListening || voice.isSpeaking) {
+          executeShortcutAction('stop-voice-all');
+        } else {
+          executeShortcutAction('escape');
+        }
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [inputText, isConnected, showSkillManager, showTokenStats, showCommandSidebar, showShortcutsHelp, showCommandPalette]);
+  }, [inputText, isConnected, showSkillManager, showTokenStats, showCommandSidebar, showShortcutsHelp, showCommandPalette, conversationMode, voice.isListening, voice.isSpeaking]);
 
   // Show help message
   const showHelp = () => {
