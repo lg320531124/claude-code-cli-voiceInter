@@ -7,7 +7,13 @@
     "dev": "concurrently \"node server/index.js\" \"vite\"",
     "server": "node server/index.js",
     "client": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "start": "node server/index.js",
+    "start:daemon": "nohup node server/index.js > logs/server.log 2>&1 & echo $! > logs/server.pid && echo 'Server started in background. PID saved to logs/server.pid'",
+    "stop:daemon": "if [ -f logs/server.pid ]; then kill $(cat logs/server.pid) && rm logs/server.pid && echo 'Server stopped'; else echo 'No server.pid file found'; fi",
+    "restart:daemon": "npm run stop:daemon && npm run start:daemon",
+    "restart": "lsof -ti:3001 | xargs kill -9 2>/dev/null; lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 1 && npm run dev",
+    "logs": "tail -f logs/server.log"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
@@ -15,6 +21,7 @@
     "autoprefixer": "^10.5.0",
     "express": "^4.18.2",
     "lucide-react": "^1.8.0",
+    "multer": "^2.1.1",
     "node-pty": "^1.1.0",
     "postcss": "^8.5.10",
     "react": "^18.2.0",
