@@ -34,12 +34,15 @@ import {
 
 function ConversationList({
   activeConversationId,
+  conversations: externalConversations,
   onConversationSelect,
   onConversationCreate,
   onConversationDelete,
   collapsed = false,
 }) {
-  const [conversations, setConversations] = useState([]);
+  // Use external conversations if provided, otherwise load from storage
+  const [localConversations, setLocalConversations] = useState([]);
+  const conversations = externalConversations || localConversations;
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editingTitle, setEditingTitle] = useState('');
@@ -48,26 +51,34 @@ function ConversationList({
   const [isCreating, setIsCreating] = useState(false); // 创建加载状态
   const [switchingToId, setSwitchingToId] = useState(null); // 切换动画状态
 
-  // 加载对话列表
+  // 加载对话列表 - 只在没有外部 conversations 时加载
   useEffect(() => {
-    const loaded = loadConversations();
-    setConversations(loaded);
+    if (!externalConversations) {
+      const loaded = loadConversations();
+      setLocalConversations(loaded);
 
-    // 如果没有活动对话，选择最新的
-    if (!activeConversationId && loaded.length > 0) {
-      onConversationSelect?.(loaded[0].id);
+      // 如果没有活动对话，选择最新的
+      if (!activeConversationId && loaded.length > 0) {
+        onConversationSelect?.(loaded[0].id);
+      }
     }
-  }, [activeConversationId, onConversationSelect]);
+  }, [externalConversations, activeConversationId, onConversationSelect]);
 
   // 创建新对话 - 添加加载状态
   const handleCreate = () => {
     setIsCreating(true);
     setTimeout(() => {
       const newConv = createConversation();
-      const updated = [...conversations, newConv];
-      setConversations(updated);
-      saveConversations(updated);
-      setActiveConversationId(newConv.id);
+
+      if (!externalConversations) {
+        // 本地模式：更新本地状态
+        const updated = [...conversations, newConv];
+        setLocalConversations(updated);
+        saveConversations(updated);
+        setActiveConversationId(newConv.id);
+      }
+
+      // 调用回调（无论是本地还是外部模式）
       onConversationCreate?.(newConv);
       onConversationSelect?.(newConv.id);
       setIsCreating(false);
@@ -81,16 +92,20 @@ function ConversationList({
   };
 
   const handleDeleteConfirm = id => {
-    const updated = deleteConversation(conversations, id);
-    setConversations(updated);
+    if (!externalConversations) {
+      // 本地模式：更新本地状态
+      const updated = deleteConversation(conversations, id);
+      setLocalConversations(updated);
 
-    // 如果删除的是当前活动对话，切换到最新的
-    if (id === activeConversationId) {
-      const nextId = updated.length > 0 ? updated[0].id : null;
-      setActiveConversationId(nextId);
-      onConversationSelect?.(nextId);
+      // 如果删除的是当前活动对话，切换到最新的
+      if (id === activeConversationId) {
+        const nextId = updated.length > 0 ? updated[0].id : null;
+        setActiveConversationId(nextId);
+        onConversationSelect?.(nextId);
+      }
     }
 
+    // 调用回调（无论是本地还是外部模式）
     onConversationDelete?.(id);
     setDeleteConfirmId(null);
   };
@@ -110,7 +125,10 @@ function ConversationList({
   const handleSaveRename = () => {
     if (editingTitle.trim()) {
       const updated = renameConversation(conversations, editingId, editingTitle.trim());
-      setConversations(updated);
+      if (!externalConversations) {
+        setLocalConversations(updated);
+      }
+      saveConversations(updated);
     }
     setEditingId(null);
     setEditingTitle('');

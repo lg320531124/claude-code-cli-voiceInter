@@ -1511,6 +1511,7 @@ Type \`/\` in the input to see all available CLI commands.
       {showConversationList && (
         <ConversationList
           activeConversationId={activeConversationId}
+          conversations={conversations}
           onConversationSelect={handleConversationSelect}
           onConversationCreate={handleConversationCreate}
           onConversationDelete={handleConversationDelete}
