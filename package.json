@@ -13,7 +13,8 @@
     "stop:daemon": "if [ -f logs/server.pid ]; then kill $(cat logs/server.pid) && rm logs/server.pid && echo 'Server stopped'; else echo 'No server.pid file found'; fi",
     "restart:daemon": "npm run stop:daemon && npm run start:daemon",
     "restart": "lsof -ti:3001 | xargs kill -9 2>/dev/null; lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 1 && npm run dev",
-    "logs": "tail -f logs/server.log"
+    "logs": "tail -f logs/server.log",
+    "dev:lan": "HOST=0.0.0.0 concurrently \"node server/index.js\" \"vite --host\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",
