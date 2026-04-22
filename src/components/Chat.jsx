@@ -437,7 +437,7 @@ function Chat() {
     sendMessage({
       type: 'claude-command',
       command: text.trim(),
-      options: { cwd: '/Users/lg/project/cloudCliVoice' }
+      options: { cwd: '.' }
     });
 
     inputRef.current?.focus();

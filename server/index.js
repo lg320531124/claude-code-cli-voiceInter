@@ -42,8 +42,10 @@ async function checkService(url) {
   }
 }
 
-// Project path for Claude session (use current project or user's home)
-const PROJECT_PATH = process.env.PROJECT_PATH || '/Users/lg/project/claude-code-cli-voiceInter';
+// Project path for Claude session (use current working directory or user's home)
+// Can be overridden via environment variable or WebSocket connection
+const DEFAULT_PROJECT_PATH = process.cwd();
+let PROJECT_PATH = process.env.PROJECT_PATH || DEFAULT_PROJECT_PATH;
 
 // Create Express app
 const app = express();
@@ -116,7 +118,7 @@ function startClaudeInstance() {
     cwd: PROJECT_PATH,
     env: {
       ...process.env,
-      HOME: process.env.HOME || '/Users/lg'
+      HOME: process.env.HOME || os.homedir()
     },
     stdio: ['pipe', 'pipe', 'pipe']
   });
