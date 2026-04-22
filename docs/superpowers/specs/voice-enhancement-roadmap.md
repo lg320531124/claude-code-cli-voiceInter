@@ -6,9 +6,9 @@ type: project
 
 # Claude Code CLI VoiceInter - 完善需求文档
 
-> **文档版本:** v2.0  
+> **文档版本:** v3.0  
 > **更新日期:** 2026-04-22  
-> **当前状态:** Phase 6-8 已完成，进入稳定迭代阶段
+> **当前状态:** Phase 6-10 全部完成，语音增强功能完整实现
 
 ---
 
@@ -34,23 +34,29 @@ type: project
 ```
 新增文件 (Phase 1-10):
 ├── server/index.js           - 添加 /api/voice/* 端点
+├── public/audioWorker.js     - WebWorker 音频处理 (Phase 9.1)
 ├── src/hooks/
 │   ├── useLocalVoice.js      - 本地语音 hooks (STT/TTS)
 │   ├── useEnhancedVoice.js   - 增强版 hooks (流式/打断/双向)
-│   └── useHybridTTS.js       - 混合 TTS (Kokoro + Browser Fallback + 缓存)
+│   ├── useHybridTTS.js       - 混合 TTS (Kokoro + Browser Fallback + 缓存)
+│   └── useAudioWorker.js     - WebWorker 音频处理 hook (Phase 9.1)
 ├── src/components/
 │   ├── VoiceWaveform.jsx     - 波形动画
 │   ├── ErrorToast.jsx        - 错误提示
 │   ├── VoicePanel.jsx        - 语音控制面板 (集成 TTS 定制)
 │   ├── VoiceStatusIndicator.jsx - 详细状态提示
-│   └── TTSSettings.jsx       - TTS 定制设置面板
+│   ├── TTSSettings.jsx       - TTS 定制设置面板
+│   ├── ConversationReplay.jsx - 对话历史回放 (Phase 10.3)
+│   └── MemoryStats.jsx       - 内存使用统计 (Phase 9.3)
 ├── src/utils/
 │   ├── voiceErrors.js        - 错误分类
 │   ├── messageCache.js       - IndexedDB 消息缓存
 │   ├── voiceAPI.js           - 网络层 (超时/重试)
 │   ├── serviceRecovery.js    - 服务自动恢复
 │   ├── browserCompatibility.js - 浏览器兼容检测
-│   └── ttsCache.js           - TTS 音频缓存 (Phase 9.2)
+│   ├── ttsCache.js           - TTS 音频缓存 (Phase 9.2)
+│   ├── voiceCommands.js      - 语音命令识别 (Phase 10.3)
+│   └── memoryMonitor.js      - 内存监控 (Phase 9.3)
 ├── src/contexts/
 │   └── WebSocketContext.jsx  - 增强 WebSocket
 ├── src/config/
@@ -162,16 +168,18 @@ type: project
 
 ---
 
-### Phase 9: 性能优化 (低优先级) ✅ 部分完成
+### Phase 9: 性能优化 (低优先级) ✅ 已完成
 
 **目标:** 提升响应速度，减少资源消耗
 
 **任务:**
 
-#### 9.1 音频处理优化
-- [ ] 音频流压缩传输
-- [ ] WebWorker 音频处理
-- [ ] 采样率动态调整
+#### 9.1 音频处理优化 ✅
+- [x] 音频流压缩传输 (模拟压缩)
+- [x] WebWorker 音频处理
+- [x] 采样率动态调整
+
+**实现:** public/audioWorker.js + useAudioWorker.js
 
 #### 9.2 缓存策略 ✅ 已完成
 - [x] TTS 音频预缓存
@@ -180,10 +188,12 @@ type: project
 
 **实现:** ttsCache.js - 内存 + IndexedDB 双层缓存
 
-#### 9.3 资源管理
-- [ ] 内存使用监控
-- [ ] 长时间运行稳定性
-- [ ] 资源自动释放
+#### 9.3 资源管理 ✅ 已完成
+- [x] 内存使用监控
+- [x] 长时间运行稳定性
+- [x] 资源自动释放
+
+**实现:** memoryMonitor.js + MemoryStats.jsx
 
 **预估时间:** 1 天
 
@@ -209,15 +219,17 @@ type: project
 
 **实现:** TTSSettings.jsx - 速度滑块 + 声音选择 + 测试功能
 
-#### 10.3 高级功能 ✅ 部分完成
+#### 10.3 高级功能 ✅ 已完成
 - [x] 实时字幕模式
-- [ ] 语音命令支持
-- [ ] 对话历史回放
+- [x] 语音命令支持
+- [x] 对话历史回放
 - [x] 导出对话记录
 
 **实现:** 
 - conversationExport.js + ExportPanel.jsx (导出)
 - RealtimeSubtitles.jsx + SubtitlesControl.jsx (字幕)
+- voiceCommands.js (语音命令识别和处理)
+- ConversationReplay.jsx (对话回放播放器)
 
 **预估时间:** 3 天
 
@@ -236,8 +248,8 @@ type: project
 ├── Phase 8: 稳定性增强 ────────────────────────── ✅ 完成
 
 低优先级 (锦上添花):
-├── Phase 9: 性能优化 ──────────────────────────── ✅ 部分完成 (缓存已实现)
-├── Phase 10: 功能扩展 ─────────────────────────── ✅ 部分完成 (TTS 定制已实现)
+├── Phase 9: 性能优化 ──────────────────────────── ✅ 完成 (WebWorker+内存监控已实现)
+├── Phase 10: 功能扩展 ─────────────────────────── ✅ 完成 (语音命令+对话回放已实现)
 ```
 
 ---

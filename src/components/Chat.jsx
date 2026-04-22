@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useVoiceInteraction } from '../hooks/useVoiceRecognition';
-import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio, Download, Menu, PanelLeft } from 'lucide-react';
+import { Send, Sparkles, User, Mic, Volume2, MoreHorizontal, RefreshCw, FileText, Settings, Activity, Terminal, CommandIcon, Keyboard, Radio, Download, Menu, PanelLeft, Play, MemoryStick } from 'lucide-react';
 import SkillManager from './SkillManager';
 import CommandPalette from './CommandPalette';
 import TokenStats from './TokenStats';
@@ -10,7 +10,9 @@ import ShortcutsHelp from './ShortcutsHelp';
 import VoicePanel, { useVoicePanelRef } from './VoicePanel';
 import ExportPanel from './ExportPanel';
 import ConversationList from './ConversationList';
+import ConversationReplay, { ReplayControl } from './ConversationReplay';
 import RealtimeSubtitles, { SubtitlesControl } from './RealtimeSubtitles';
+import MemoryStats, { MemoryStatsButton } from './MemoryStats';
 import { useHybridTTS } from '../hooks/useHybridTTS';
 import { shortcuts, shortcutActions } from '../config/shortcuts';
 import {
@@ -66,6 +68,7 @@ function Chat() {
   const streamBufferRef = useRef('');
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSending, setIsSending] = useState(false); // 发送动画状态
   const [sessionId, setSessionId] = useState(null);
   const [claudeReady, setClaudeReady] = useState(false);
   const [isComposing, setIsComposing] = useState(false); // Input method composition state
@@ -124,6 +127,9 @@ function Chat() {
   const [showCommandSidebar, setShowCommandSidebar] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
+  const [showReplayPanel, setShowReplayPanel] = useState(false);
+  const [showMemoryStats, setShowMemoryStats] = useState(false);
+  const [memoryUsage, setMemoryUsage] = useState(null);
   const [compactMode, setCompactMode] = useState(false);
   const [fastMode, setFastMode] = useState(false);
   const [conversationMode, setConversationMode] = useState(false);  // 双向对话模式
@@ -407,9 +413,22 @@ function Chat() {
   const sendToClaude = useCallback((text) => {
     if (!text.trim() || !isConnected || isProcessing) return;
 
-    setMessages(prev => [...prev, { role: 'user', content: text.trim() }]);
+    // 发送动画
+    setIsSending(true);
+    setMessages(prev => [...prev, { role: 'user', content: text.trim(), isSending: true }]);
     setInputText('');
     setIsProcessing(true);
+
+    // 短暂延迟后完成发送动画
+    setTimeout(() => {
+      setIsSending(false);
+      // 更新消息状态为已发送
+      setMessages(prev => prev.map(m =>
+        m.isSending && m.content === text.trim()
+          ? { ...m, isSending: false }
+          : m
+      ));
+    }, 300);
 
     if (voice.stopSpeaking) {
       voice.stopSpeaking();
@@ -639,6 +658,12 @@ function Chat() {
   const handleConversationAssistantSpeech = (text) => {
     console.log('[Conversation] Assistant said:', text.substring(0, 50));
     setCurrentTtsText(text);
+  };
+
+  // Handle voice command execution
+  const handleVoiceCommandExecute = (action, commandId) => {
+    console.log('[Chat] Voice command executed:', action, commandId);
+    executeShortcutAction(action);
   };
 
   // Handle command palette selection
@@ -925,6 +950,13 @@ function Chat() {
       case 'toggle-conversation-list':
         setShowConversationList(prev => !prev);
         break;
+      // Read last message
+      case 'read-last-message':
+        const lastAssistantMsg = messages.filter(m => m.role === 'assistant').pop();
+        if (lastAssistantMsg && lastAssistantMsg.content) {
+          handleSpeakMessage(lastAssistantMsg.content);
+        }
+        break;
       default:
         console.log('Unknown shortcut action:', action);
     }
@@ -1133,11 +1165,14 @@ Type \`/\` in the input to see all available CLI commands.
     const isUser = msg.role === 'user';
     const isError = msg.role === 'error';
     const isLast = index === messages.length - 1;
+    const isMsgSending = msg.isSending && isSending;
 
     return (
       <div
         key={index}
-        className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}
+        className={`flex ${isUser ? 'justify-end' : 'justify-start'} transition-all duration-300 ${
+          isMsgSending ? 'opacity-70 scale-[0.98] animate-pulse' : 'animate-fade-in'
+        }`}
         style={{ animationDelay: `${index * 50}ms` }}
       >
         {/* Avatar */}
@@ -1149,9 +1184,11 @@ Type \`/\` in the input to see all available CLI commands.
 
         {/* Message Bubble */}
         <div
-          className={`max-w-[75%] px-5 py-4 leading-relaxed ${
+          className={`max-w-[75%] px-5 py-4 leading-relaxed transition-all duration-300 ${
             isUser
-              ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-3xl rounded-tr-xl shadow-lg shadow-blue-500/20'
+              ? `bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-3xl rounded-tr-xl shadow-lg ${
+                  isMsgSending ? 'shadow-blue-400/40 animate-pulse' : 'shadow-blue-500/20'
+                }`
               : isError
               ? 'bg-red-500/10 text-red-400 border border-red-500/20 rounded-3xl'
               : 'bg-white/10 backdrop-blur-xl text-white/90 rounded-3xl rounded-tl-xl border border-white/10 shadow-xl'
@@ -1163,7 +1200,13 @@ Type \`/\` in the input to see all available CLI commands.
 
           {/* Message actions - speak button */}
           {!isError && msg.content && msg.content.trim() && (
-            <div className="flex justify-end mt-2">
+            <div className="flex justify-end mt-2 gap-2">
+              {/* Sending indicator */}
+              {isMsgSending && (
+                <span className="text-xs text-white/50 animate-pulse">
+                  发送中...
+                </span>
+              )}
               <button
                 onClick={() => handleSpeakMessage(msg.content)}
                 disabled={historyTTS.isSpeaking}
@@ -1319,6 +1362,30 @@ Type \`/\` in the input to see all available CLI commands.
             <Download className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
           </button>
 
+          {/* Replay button */}
+          <button
+            onClick={() => setShowReplayPanel(true)}
+            disabled={messages.length === 0}
+            className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 disabled:opacity-50 group"
+            title="🔄 对话回放 - 朗读历史对话记录"
+          >
+            <Play className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+          </button>
+
+          {/* Memory Stats button */}
+          <button
+            onClick={() => setShowMemoryStats(true)}
+            className="p-3 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 transition-all duration-200 group"
+            title="📊 内存统计 - 查看缓存使用情况和清理选项"
+          >
+            <MemoryStick className="w-5 h-5 text-white/70 group-hover:text-white transition-colors" />
+            {memoryUsage && memoryUsage.formatted && (
+              <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-green-500/80 text-xs text-white font-medium">
+                {memoryUsage.formatted}
+              </span>
+            )}
+          </button>
+
           {/* CLI Commands button */}
           <button
             onClick={() => setShowCommandSidebar(!showCommandSidebar)}
@@ -1419,7 +1486,11 @@ Type \`/\` in the input to see all available CLI commands.
                 placeholder="Message Claude... or type / for commands"
                 disabled={isProcessing}
                 rows={1}
-                className="w-full px-6 py-4 pr-14 bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50 focus:bg-white/15 resize-none transition-all duration-200 disabled:opacity-50 text-[15px]"
+                className={`w-full px-6 py-4 pr-14 backdrop-blur-xl border rounded-3xl text-white placeholder-white/40 focus:outline-none resize-none transition-all duration-200 disabled:opacity-50 text-[15px] ${
+                  inputText.trim() && !isProcessing
+                    ? 'bg-white/15 border-purple-500/40 shadow-lg shadow-purple-500/10'
+                    : 'bg-white/10 border-white/10 focus:border-purple-500/50 focus:bg-white/15'
+                }`}
                 style={{
                   minHeight: '56px',
                   maxHeight: '200px',
@@ -1500,6 +1571,7 @@ Type \`/\` in the input to see all available CLI commands.
                     onUserSpeech={handleConversationUserSpeech}
                     onAssistantSpeech={handleConversationAssistantSpeech}
                     onInterimTranscript={setCurrentSttText}
+                    onCommandExecute={handleVoiceCommandExecute}
                     enabled={isConnected && !isProcessing}
                     showWaveform={true}
                     autoContinue={true}
@@ -1525,9 +1597,15 @@ Type \`/\` in the input to see all available CLI commands.
               type="submit"
               disabled={!inputText.trim() || !isConnected || isProcessing}
               title="发送消息给 Claude (Enter)"
-              className="h-[56px] w-[56px] rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:shadow-none group"
+              className={`h-[56px] w-[56px] rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center shadow-lg transition-all duration-200 disabled:opacity-50 disabled:shadow-none group ${
+                isSending
+                  ? 'scale-95 shadow-purple-300/40 animate-pulse'
+                  : 'shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-105'
+              }`}
             >
-              <Send className="w-5 h-5 text-white group-disabled:opacity-50" />
+              <Send className={`w-5 h-5 text-white group-disabled:opacity-50 transition-transform ${
+                isSending ? 'animate-bounce' : ''
+              }`} />
             </button>
           </form>
 
@@ -1562,6 +1640,19 @@ Type \`/\` in the input to see all available CLI commands.
           />
         </div>
       )}
+
+      {/* Conversation Replay Panel */}
+      <ConversationReplay
+        messages={messages}
+        isOpen={showReplayPanel}
+        onClose={() => setShowReplayPanel(false)}
+      />
+
+      {/* Memory Stats Panel */}
+      <MemoryStats
+        isOpen={showMemoryStats}
+        onClose={() => setShowMemoryStats(false)}
+      />
 
       {/* Command Sidebar */}
       <CommandSidebar

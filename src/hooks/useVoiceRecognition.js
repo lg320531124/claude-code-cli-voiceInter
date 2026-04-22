@@ -17,7 +17,7 @@ const speechSynthesis = window.speechSynthesis;
 export function useVoiceRecognition(options = {}) {
   const {
     language = 'zh-CN', // Default Chinese
-    continuous = false,
+    continuous = true,  // 改为 true，持续录音直到用户手动停止
     onResult,
     onError,
     onEnd
@@ -26,84 +26,146 @@ export function useVoiceRecognition(options = {}) {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [error, setError] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
   const recognitionRef = useRef(null);
 
   // Initialize speech recognition
   useEffect(() => {
     if (!SpeechRecognition) {
       console.warn('[Voice] Speech Recognition not supported');
+      setError('browser-not-supported');
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = language;
-    recognition.continuous = continuous;
-    recognition.interimResults = true;
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = language;
+      recognition.continuous = continuous;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => {
-      console.log('[Voice] Recognition started');
-      setIsListening(true);
-    };
+      recognition.onstart = () => {
+        console.log('[Voice] Recognition started');
+        setIsListening(true);
+        setError(null);
+      };
 
-    recognition.onresult = (event) => {
-      let interim = '';
-      let final = '';
+      recognition.onresult = (event) => {
+        let interim = '';
+        let final = '';
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          final += result[0].transcript;
-        } else {
-          interim += result[0].transcript;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            final += result[0].transcript;
+          } else {
+            interim += result[0].transcript;
+          }
         }
-      }
 
-      if (interim) {
-        setInterimTranscript(interim);
-      }
-
-      if (final) {
-        setTranscript(final);
-        if (onResult) {
-          onResult(final);
+        if (interim) {
+          setInterimTranscript(interim);
+          console.log('[Voice] Interim:', interim);
         }
-      }
-    };
 
-    recognition.onerror = (event) => {
-      console.error('[Voice] Error:', event.error);
-      setIsListening(false);
-      if (onError) {
-        onError(event.error);
-      }
-    };
+        if (final) {
+          setTranscript(final);
+          console.log('[Voice] Final:', final);
+          if (onResult) {
+            onResult(final);
+          }
+        }
+      };
 
-    recognition.onend = () => {
-      console.log('[Voice] Recognition ended');
-      setIsListening(false);
-      if (onEnd) {
-        onEnd();
-      }
-    };
+      recognition.onerror = (event) => {
+        console.error('[Voice] Error:', event.error);
+        setIsListening(false);
 
-    recognitionRef.current = recognition;
+        // Handle specific errors
+        const errorMessages = {
+          'not-allowed': '麦克风权限被拒绝，请在浏览器设置中允许访问',
+          'no-speech': '没有检测到语音，请说话后再试',
+          'audio-capture': '无法捕获音频，请检查麦克风是否正常',
+          'network': '网络错误，语音识别需要网络连接',
+          'aborted': '语音识别被中断',
+          'service-not-allowed': '语音服务不可用',
+          'browser-not-supported': '浏览器不支持语音识别'
+        };
 
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
+        setError(event.error);
+        if (onError) {
+          onError(event.error, errorMessages[event.error] || '未知错误');
+        }
+      };
+
+      recognition.onend = () => {
+        console.log('[Voice] Recognition ended');
+        setIsListening(false);
+        if (onEnd) {
+          onEnd();
+        }
+      };
+
+      recognitionRef.current = recognition;
+      setIsInitialized(true);
+      console.log('[Voice] Initialized successfully');
+
+      return () => {
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.stop();
+          } catch (e) {
+            // Ignore stop errors
+          }
+        }
+      };
+    } catch (initError) {
+      console.error('[Voice] Init error:', initError);
+      setError('init-failed');
+    }
   }, [language, continuous, onResult, onError, onEnd]);
 
   // Start listening
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListening) {
-      setTranscript('');
-      setInterimTranscript('');
-      try {
-        recognitionRef.current.start();
-      } catch (error) {
-        console.error('[Voice] Start error:', error);
+    if (!recognitionRef.current) {
+      console.error('[Voice] Recognition not initialized');
+      setError('not-initialized');
+      return;
+    }
+
+    if (isListening) {
+      console.log('[Voice] Already listening');
+      return;
+    }
+
+    setTranscript('');
+    setInterimTranscript('');
+    setError(null);
+
+    try {
+      recognitionRef.current.start();
+      console.log('[Voice] Starting recognition...');
+    } catch (startError) {
+      console.error('[Voice] Start error:', startError);
+
+      // Handle the case where recognition is already running
+      if (startError.name === 'InvalidStateError') {
+        // Recognition is already running, stop first then start
+        try {
+          recognitionRef.current.stop();
+          setTimeout(() => {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              setError('start-failed');
+            }
+          }, 100);
+        } catch (e) {
+          setError('restart-failed');
+        }
+      } else {
+        setError('start-failed');
       }
     }
   }, [isListening]);
@@ -111,12 +173,18 @@ export function useVoiceRecognition(options = {}) {
   // Stop listening
   const stopListening = useCallback(() => {
     if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+        console.log('[Voice] Stopped recognition');
+      } catch (stopError) {
+        console.error('[Voice] Stop error:', stopError);
+      }
     }
   }, [isListening]);
 
   // Toggle listening
   const toggleListening = useCallback(() => {
+    console.log('[Voice] Toggle - current state:', isListening);
     if (isListening) {
       stopListening();
     } else {
@@ -128,6 +196,8 @@ export function useVoiceRecognition(options = {}) {
     isListening,
     transcript,
     interimTranscript,
+    error,
+    isInitialized,
     startListening,
     stopListening,
     toggleListening,
@@ -247,10 +317,16 @@ export function useVoiceInteraction(options = {}) {
     autoSpeakResponse = true
   } = options;
 
+  // Handle STT error with user-friendly message
+  const handleSttError = useCallback((errorType, message) => {
+    console.warn('[VoiceInteraction] STT Error:', errorType, message);
+  }, []);
+
   // STT
   const stt = useVoiceRecognition({
     language,
-    onResult: onSpeechResult
+    onResult: onSpeechResult,
+    onError: handleSttError
   });
 
   // TTS
@@ -265,11 +341,33 @@ export function useVoiceInteraction(options = {}) {
     }
   }, [autoSpeakResponse, tts]);
 
+  // Get error message for display
+  const getErrorMessage = useCallback(() => {
+    if (!stt.isSupported) {
+      return '浏览器不支持语音识别，请使用 Chrome 或 Safari';
+    }
+    if (stt.error) {
+      const errorMessages = {
+        'not-allowed': '请允许麦克风权限',
+        'no-speech': '没有检测到语音',
+        'audio-capture': '麦克风无法使用',
+        'network': '网络错误',
+        'browser-not-supported': '浏览器不支持',
+        'not-initialized': '语音未初始化',
+        'start-failed': '启动失败'
+      };
+      return errorMessages[stt.error] || '语音错误';
+    }
+    return null;
+  }, [stt.isSupported, stt.error]);
+
   return {
     // STT
     isListening: stt.isListening,
     transcript: stt.transcript,
     interimTranscript: stt.interimTranscript,
+    error: stt.error,
+    errorMessage: getErrorMessage(),
     startListening: stt.startListening,
     stopListening: stt.stopListening,
     toggleListening: stt.toggleListening,
@@ -282,6 +380,7 @@ export function useVoiceInteraction(options = {}) {
 
     // Combined
     isSupported: stt.isSupported && tts.isSupported,
+    isInitialized: stt.isInitialized,
     isActive: stt.isListening || tts.isSpeaking
   };
 }

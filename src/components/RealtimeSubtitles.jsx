@@ -220,7 +220,7 @@ export function SubtitlesControl({
             : 'bg-gray-700 text-gray-400 border border-gray-600'
         }`}
       >
-        <Caption className="w-4 h-4" />
+        <Subtitles className="w-4 h-4" />
         <span className="text-sm">字幕</span>
         {enabled && <span className="text-xs bg-purple-500/30 px-1 rounded">ON</span>}
       </button>

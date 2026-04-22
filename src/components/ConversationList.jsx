@@ -8,7 +8,7 @@
 // - 对话统计显示
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, MessageSquare, Search, Clock, MoreHorizontal, Edit3, Check, X } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, Search, Clock, MoreHorizontal, Edit3, Check, X, Loader2 } from 'lucide-react';
 import {
   createConversation,
   loadConversations,
@@ -33,6 +33,9 @@ function ConversationList({
   const [editingId, setEditingId] = useState(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [showMenuId, setShowMenuId] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null); // 删除确认状态
+  const [isCreating, setIsCreating] = useState(false); // 创建加载状态
+  const [switchingToId, setSwitchingToId] = useState(null); // 切换动画状态
 
   // 加载对话列表
   useEffect(() => {
@@ -45,19 +48,28 @@ function ConversationList({
     }
   }, [activeConversationId, onConversationSelect]);
 
-  // 创建新对话
+  // 创建新对话 - 添加加载状态
   const handleCreate = () => {
-    const newConv = createConversation();
-    const updated = [...conversations, newConv];
-    setConversations(updated);
-    saveConversations(updated);
-    setActiveConversationId(newConv.id);
-    onConversationCreate?.(newConv);
-    onConversationSelect?.(newConv.id);
+    setIsCreating(true);
+    setTimeout(() => {
+      const newConv = createConversation();
+      const updated = [...conversations, newConv];
+      setConversations(updated);
+      saveConversations(updated);
+      setActiveConversationId(newConv.id);
+      onConversationCreate?.(newConv);
+      onConversationSelect?.(newConv.id);
+      setIsCreating(false);
+    }, 200);
   };
 
-  // 删除对话
-  const handleDelete = (id) => {
+  // 删除对话 - 添加确认步骤
+  const handleDeleteClick = (id) => {
+    setDeleteConfirmId(id);
+    setShowMenuId(null);
+  };
+
+  const handleDeleteConfirm = (id) => {
     const updated = deleteConversation(conversations, id);
     setConversations(updated);
 
@@ -69,7 +81,11 @@ function ConversationList({
     }
 
     onConversationDelete?.(id);
-    setShowMenuId(null);
+    setDeleteConfirmId(null);
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmId(null);
   };
 
   // 开始重命名
@@ -93,6 +109,17 @@ function ConversationList({
   const handleCancelRename = () => {
     setEditingId(null);
     setEditingTitle('');
+  };
+
+  // 切换对话 - 添加切换动画
+  const handleConversationClick = (id) => {
+    if (editingId === id || deleteConfirmId === id) return;
+
+    setSwitchingToId(id);
+    setTimeout(() => {
+      onConversationSelect?.(id);
+      setSwitchingToId(null);
+    }, 150);
   };
 
   // 搜索过滤
@@ -119,10 +146,19 @@ function ConversationList({
         {/* 新建按钮 */}
         <button
           onClick={handleCreate}
-          className="p-2 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition"
+          disabled={isCreating}
+          className={`p-2 rounded-lg transition-all duration-150 ${
+            isCreating
+              ? 'bg-yellow-500/20 text-yellow-400 animate-pulse'
+              : 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30'
+          }`}
           title="新建对话"
         >
-          <Plus className="w-5 h-5" />
+          {isCreating ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Plus className="w-5 h-5" />
+          )}
         </button>
 
         {/* 对话图标列表 */}
@@ -130,9 +166,12 @@ function ConversationList({
           {filteredConversations.slice(0, 10).map((conv) => (
             <button
               key={conv.id}
-              onClick={() => onConversationSelect?.(conv.id)}
-              className={`p-2 rounded-lg transition ${
-                activeConversationId === conv.id
+              onClick={() => handleConversationClick(conv.id)}
+              disabled={switchingToId === conv.id}
+              className={`p-2 rounded-lg transition-all duration-150 ${
+                switchingToId === conv.id
+                  ? 'opacity-50 scale-90'
+                  : activeConversationId === conv.id
                   ? 'bg-purple-500/30 text-purple-400'
                   : 'text-gray-400 hover:bg-gray-800'
               }`}
@@ -155,10 +194,19 @@ function ConversationList({
           <span className="text-sm font-medium text-gray-300">对话列表</span>
           <button
             onClick={handleCreate}
-            className="p-1 rounded bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition"
+            disabled={isCreating}
+            className={`p-1 rounded transition-all duration-150 ${
+              isCreating
+                ? 'bg-yellow-500/20 text-yellow-400 animate-pulse'
+                : 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30'
+            }`}
             title="新建对话"
           >
-            <Plus className="w-4 h-4" />
+            {isCreating ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
           </button>
         </div>
 
@@ -185,19 +233,41 @@ function ConversationList({
           filteredConversations.map((conv) => (
             <div
               key={conv.id}
-              className={`group relative p-3 border-b border-gray-800/50 cursor-pointer transition ${
+              className={`group relative p-3 border-b border-gray-800/50 cursor-pointer transition-all duration-150 ${
+                switchingToId === conv.id ? 'opacity-50 scale-95' : ''
+              } ${
                 activeConversationId === conv.id
                   ? 'bg-purple-500/10'
                   : 'hover:bg-gray-800/30'
               }`}
-              onClick={() => {
-                if (editingId !== conv.id) {
-                  onConversationSelect?.(conv.id);
-                }
-              }}
+              onClick={() => handleConversationClick(conv.id)}
             >
-              {/* 编辑模式 */}
-              {editingId === conv.id ? (
+              {/* 删除确认模式 */}
+              {deleteConfirmId === conv.id ? (
+                <div className="flex items-center justify-between gap-2 animate-pulse">
+                  <span className="text-sm text-red-400">确认删除?</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteConfirm(conv.id);
+                      }}
+                      className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition"
+                    >
+                      删除
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteCancel();
+                      }}
+                      className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : editingId === conv.id ? (
                 <div className="flex items-center gap-1">
                   <input
                     type="text"
@@ -208,13 +278,13 @@ function ConversationList({
                   />
                   <button
                     onClick={handleSaveRename}
-                    className="p-1 text-green-400 hover:bg-green-500/20 rounded"
+                    className="p-1 text-green-400 hover:bg-green-500/20 rounded transition"
                   >
                     <Check className="w-3 h-3" />
                   </button>
                   <button
                     onClick={handleCancelRename}
-                    className="p-1 text-red-400 hover:bg-red-500/20 rounded"
+                    className="p-1 text-red-400 hover:bg-red-500/20 rounded transition"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -267,7 +337,7 @@ function ConversationList({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(conv.id);
+                          handleDeleteClick(conv.id);
                         }}
                         className="px-3 py-1 text-xs text-red-400 hover:bg-gray-700 flex items-center gap-1 w-full"
                       >
