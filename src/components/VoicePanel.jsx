@@ -8,11 +8,12 @@
 // - 音量级别显示
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Radio, Settings, X, RefreshCw, Speaker } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Radio, Settings, X, RefreshCw } from 'lucide-react';
 import { useBidirectionalVoice } from '../hooks/useEnhancedVoice';
 import { useHybridTTS } from '../hooks/useHybridTTS';
 import VoiceWaveform from './VoiceWaveform';
 import ErrorToast from './ErrorToast';
+import TTSSettings from './TTSSettings';
 import { getErrorInfo } from '../utils/voiceErrors';
 
 function VoicePanel({
@@ -26,11 +27,14 @@ function VoicePanel({
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [ttsMode, setTtsMode] = useState(null); // 'kokoro' | 'browser'
+  const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [ttsVoice, setTtsVoice] = useState('af_sky');
+  const [browserVoices, setBrowserVoices] = useState([]);
 
   // 双向对话 hook
   const voice = useBidirectionalVoice({
     language: 'auto',
-    voice: 'af_sky',
+    voice: ttsVoice,
     autoContinue,
     interruptionEnabled,
     silenceThreshold: 1500,
@@ -48,17 +52,44 @@ function VoicePanel({
     }
   });
 
+  // 加载浏览器声音列表
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        setBrowserVoices(voices);
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
   // 混合 TTS hook (Kokoro + Browser Fallback)
   const hybridTTS = useHybridTTS({
-    voice: 'af_sky',
-    speed: 1.0,
+    voice: ttsVoice,
+    speed: ttsSpeed,
     language: 'zh-CN',
-    preferKokoro: true,
+    preferKokoro: ttsMode !== 'browser',
     onModeChange: (mode) => {
       setTtsMode(mode);
       console.log('[VoicePanel] TTS 模式切换:', mode);
     }
   });
+
+  // 处理速度变化
+  const handleSpeedChange = useCallback((newSpeed) => {
+    setTtsSpeed(newSpeed);
+  }, []);
+
+  // 处理声音变化
+  const handleVoiceChange = useCallback((newVoice) => {
+    setTtsVoice(newVoice);
+  }, []);
+
+  // 处理测试语音
+  const handleTestSpeak = useCallback((text) => {
+    hybridTTS.speak(text);
+  }, [hybridTTS]);
 
   // 处理错误 - 更智能的错误处理
   useEffect(() => {
@@ -269,40 +300,19 @@ function VoicePanel({
               />
             </div>
 
-            {/* TTS 模式选择 */}
-            <div className="mt-3 pt-2 border-t border-gray-700">
-              <div className="flex items-center gap-2 mb-2">
-                <Speaker className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-300">语音合成模式</span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => hybridTTS.switchMode('kokoro')}
-                  disabled={!hybridTTS.kokoroReady}
-                  className={`flex-1 py-1 px-2 rounded text-xs ${
-                    ttsMode === 'kokoro'
-                      ? 'bg-purple-500 text-white'
-                      : hybridTTS.kokoroReady
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  Kokoro {hybridTTS.kokoroReady ? '' : '(离线)'}
-                </button>
-                <button
-                  onClick={() => hybridTTS.switchMode('browser')}
-                  disabled={!hybridTTS.browserReady}
-                  className={`flex-1 py-1 px-2 rounded text-xs ${
-                    ttsMode === 'browser'
-                      ? 'bg-purple-500 text-white'
-                      : hybridTTS.browserReady
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  浏览器
-                </button>
-              </div>
+            {/* TTS 定制设置 */}
+            <div className="mt-3 pt-3 border-t border-gray-700">
+              <TTSSettings
+                speed={ttsSpeed}
+                voice={ttsVoice}
+                voices={browserVoices}
+                onSpeedChange={handleSpeedChange}
+                onVoiceChange={handleVoiceChange}
+                ttsMode={ttsMode}
+                kokoroReady={hybridTTS.kokoroReady}
+                browserReady={hybridTTS.browserReady}
+                onTestSpeak={handleTestSpeak}
+              />
             </div>
           </div>
         )}
