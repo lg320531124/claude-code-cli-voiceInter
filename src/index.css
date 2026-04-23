@@ -143,6 +143,16 @@
   }
 }
 
+/* Wave animation for response indicator */
+@keyframes wave {
+  0%, 100% {
+    height: 40%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+
 .animate-fade-in {
   animation: fade-in 0.4s ease-out forwards;
 }

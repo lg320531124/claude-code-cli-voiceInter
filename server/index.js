@@ -525,6 +525,17 @@ function handleChatConnection(ws) {
         setTimeout(() => startClaudeInstance(), 500);
       } else if (data.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
+      } else if (data.type === 'stop-response') {
+        // Stop current streaming response
+        logger.info('Stop response requested');
+
+        // Notify all clients that response was stopped
+        broadcastToClients({
+          type: 'response-stopped',
+        });
+        broadcastToClients({
+          type: 'complete',
+        });
 
         // ============================================
         // SKILL MANAGEMENT
