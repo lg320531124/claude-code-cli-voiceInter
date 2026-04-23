@@ -2,6 +2,7 @@
  * Logger utility - Simple logging for server
  */
 
+// Browser-safe: use import.meta.env instead of process.env
 const LOG_LEVELS = {
   DEBUG: 0,
   INFO: 1,
@@ -9,7 +10,10 @@ const LOG_LEVELS = {
   ERROR: 3,
 };
 
-const currentLevel = process.env.LOG_LEVEL ? LOG_LEVELS[process.env.LOG_LEVEL.toUpperCase()] : LOG_LEVELS.INFO;
+const currentLevel =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_LOG_LEVEL
+    ? LOG_LEVELS[import.meta.env.VITE_LOG_LEVEL.toUpperCase()]
+    : LOG_LEVELS.INFO;
 
 let context = 'App';
 

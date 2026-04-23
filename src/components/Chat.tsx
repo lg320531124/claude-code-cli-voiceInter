@@ -51,7 +51,35 @@ function Chat() {
     saveMessagesToConversation,
   } = useConversationManager();
 
-  // Send message to Claude (defined early to be used in callbacks)
+  // Input state (defined early before callbacks that use them)
+  const [inputText, setInputText] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Conversation mode
+  const [conversationMode, setConversationMode] = useState(false);
+
+  // Modal states
+  const [showSkillManager, setShowSkillManager] = useState(false);
+  const [showTokenStats, setShowTokenStats] = useState(false);
+  const [showCommandSidebar, setShowCommandSidebar] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [showExportPanel, setShowExportPanel] = useState(false);
+  const [showReplayPanel, setShowReplayPanel] = useState(false);
+  const [showMemoryStats, setShowMemoryStats] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+
+  // Subtitles
+  const [showSubtitles, setShowSubtitles] = useState(false);
+  const [currentTtsText, setCurrentTtsText] = useState('');
+  const [currentSttText, setCurrentSttText] = useState('');
+
+  // Ref for voice stop function (to avoid circular dependency)
+  const voiceStopSpeakingRef = useRef<(() => void) | null>(null);
+
+  // Send message to Claude (defined early, uses refs to avoid circular deps)
   const sendToClaudeInternal = useCallback(
     (text: string) => {
       if ((!text.trim() && attachments.length === 0) || !isConnected || isProcessing) return;
@@ -97,11 +125,12 @@ function Chat() {
         );
       }, 300);
 
-      voice.stopSpeaking?.();
+      // Use ref to avoid circular dependency on voice
+      voiceStopSpeakingRef.current?.();
       sendMessage({ type: 'claude-command', command: fullContent, options: { cwd: '.' } });
       inputRef.current?.focus();
     },
-    [isConnected, isProcessing, sendMessage, voice, attachments, setMessages]
+    [isConnected, isProcessing, sendMessage, attachments, setMessages]
   );
 
   // Save messages to conversation
@@ -109,7 +138,7 @@ function Chat() {
     saveMessagesToConversation(messages);
   }, [messages, saveMessagesToConversation]);
 
-  // Voice interaction
+  // Voice interaction (defined after sendToClaudeInternal so it can be used in callback)
   const voice = useVoiceInteraction({
     language: 'zh-CN',
     onSpeechResult: useCallback(
@@ -121,6 +150,11 @@ function Chat() {
     autoSpeakResponse: true,
   });
 
+  // Update ref when voice changes
+  useEffect(() => {
+    voiceStopSpeakingRef.current = voice.stopSpeaking || null;
+  }, [voice.stopSpeaking]);
+
   // History TTS
   const historyTTS = useHybridTTS({
     voice: 'af_sky',
@@ -129,32 +163,7 @@ function Chat() {
     preferKokoro: true,
   });
 
-  // Input state
-  const [inputText, setInputText] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [isComposing, setIsComposing] = useState(false);
-  const [attachments, setAttachments] = useState<any[]>([]);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Conversation mode
-  const [conversationMode, setConversationMode] = useState(false);
-
-  // Modal states
-  const [showSkillManager, setShowSkillManager] = useState(false);
-  const [showTokenStats, setShowTokenStats] = useState(false);
-  const [showCommandSidebar, setShowCommandSidebar] = useState(false);
-  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
-  const [showExportPanel, setShowExportPanel] = useState(false);
-  const [showReplayPanel, setShowReplayPanel] = useState(false);
-  const [showMemoryStats, setShowMemoryStats] = useState(false);
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-
-  // Subtitles
-  const [showSubtitles, setShowSubtitles] = useState(false);
-  const [currentTtsText, setCurrentTtsText] = useState('');
-  const [currentSttText, setCurrentSttText] = useState('');
-
-  // Voice handlers (defined early for use in handleCommandAction)
+  // Voice handlers
   const handleVoiceClick = useCallback(() => {
     if (!voice.isSupported) {
       setMessages(prev => [
@@ -232,15 +241,7 @@ function Chat() {
           break;
       }
     },
-    [
-      sendMessage,
-      startNewConversation,
-      clearMessages,
-      handleVoiceClick,
-      handleConversationModeClick,
-      handleStopAll,
-      conversationMode,
-    ]
+    [sendMessage, startNewConversation, clearMessages, handleVoiceClick, handleConversationModeClick, handleStopAll, conversationMode]
   );
 
   // Keyboard shortcuts
@@ -271,7 +272,6 @@ function Chat() {
       if (text.startsWith('/')) {
         setShowCommandPalette(false);
         setInputText('');
-        // Handle commands
         setMessages(prev => [...prev, { role: 'user', content: text }]);
         return;
       }
@@ -290,6 +290,10 @@ function Chat() {
     },
     [handleCommandAction]
   );
+
+  // Composition handlers
+  const handleCompositionStart = useCallback(() => setIsComposing(true), []);
+  const handleCompositionEnd = useCallback(() => setIsComposing(false), []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col">
@@ -351,23 +355,29 @@ function Chat() {
             onStopResponse={handleStopAll}
           />
 
-          {/* Voice Panel for conversation mode */}
-          {conversationMode && (
+          {/* Voice Panel */}
+          <div className="mt-4">
             <VoicePanel
-              onUserSpeech={(text: string) => {
-                setCurrentSttText(text);
-                sendToClaudeInternal(text);
-              }}
-              onAssistantSpeech={setCurrentTtsText}
+              onUserSpeech={(text) => sendToClaudeInternal(text)}
               onInterimTranscript={setCurrentSttText}
-              enabled={isConnected && !isProcessing}
+              enabled={conversationMode}
               showWaveform={true}
               autoContinue={true}
               interruptionEnabled={true}
             />
+          </div>
+
+          {/* Realtime Subtitles */}
+          {showSubtitles && (currentTtsText || currentSttText) && (
+            <RealtimeSubtitles
+              ttsText={currentTtsText}
+              sttText={currentSttText}
+              visible={showSubtitles}
+            />
           )}
         </main>
 
+        {/* Input area */}
         <ChatInput
           inputText={inputText}
           setInputText={setInputText}
@@ -387,8 +397,8 @@ function Chat() {
           onStopAll={handleStopAll}
           onCommandSelect={handleCommandSelect}
           sendMessage={sendMessage}
-          handleCompositionStart={() => setIsComposing(true)}
-          handleCompositionEnd={() => setIsComposing(false)}
+          handleCompositionStart={handleCompositionStart}
+          handleCompositionEnd={handleCompositionEnd}
         />
       </div>
 
@@ -408,20 +418,9 @@ function Chat() {
         setShowReplayPanel={setShowReplayPanel}
         showMemoryStats={showMemoryStats}
         setShowMemoryStats={setShowMemoryStats}
-        tokenUsage={tokenUsage}
         messages={messages}
-        onCommandSelect={handleCommandSelect}
-      />
-
-      {/* Subtitles */}
-      <RealtimeSubtitles
-        sttText={currentSttText}
-        ttsText={currentTtsText}
-        isListening={voice.isListening}
-        isSpeaking={voice.isSpeaking}
-        enabled={showSubtitles}
-        position="bottom"
-        onClose={() => setShowSubtitles(false)}
+        tokenUsage={tokenUsage}
+        sessionId={sessionId}
       />
     </div>
   );
