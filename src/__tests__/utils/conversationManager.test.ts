@@ -17,9 +17,15 @@ const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
     getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => { store[key] = value; },
-    removeItem: (key: string) => { delete store[key]; },
-    clear: () => { store = {}; },
+    setItem: (key: string, value: string) => {
+      store[key] = value;
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      store = {};
+    },
   };
 })();
 
@@ -104,16 +110,16 @@ describe('conversationManager', () => {
       expect(result?.messages.length).toBe(1);
     });
 
-    it('returns undefined for non-existent conversation', () => {
+    it('returns null for non-existent conversation', () => {
       const conversations = [{ id: 'conv-1', messages: [] }];
       const result = getConversation(conversations, 'non-existent');
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     });
   });
 
   describe('updateConversation', () => {
     it('updates conversation messages', () => {
-      const conversations = [{ id: 'conv-1', messages: [] }];
+      const conversations = [{ id: 'conv-1', title: 'Test Title', messages: [] }];
       const newMessages = [{ role: 'user', content: 'Hello' }];
 
       const result = updateConversation(conversations, 'conv-1', { messages: newMessages });
@@ -122,7 +128,7 @@ describe('conversationManager', () => {
     });
 
     it('returns original conversations if id not found', () => {
-      const conversations = [{ id: 'conv-1', messages: [] }];
+      const conversations = [{ id: 'conv-1', title: 'Test', messages: [] }];
       const result = updateConversation(conversations, 'non-existent', { messages: [] });
       expect(result).toEqual(conversations);
     });

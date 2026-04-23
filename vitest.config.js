@@ -8,7 +8,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/__tests__/setup.js'],
-    include: ['src/**/*.{test,spec}.{js,jsx}'],
+    include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
@@ -17,19 +17,19 @@ export default defineConfig({
         'src/__tests__/setup.js',
         '**/*.d.ts',
         '**/*.config.*',
-        '**/index.js'
+        '**/index.js',
       ],
       thresholds: {
         lines: 70,
         functions: 70,
         branches: 60,
-        statements: 70
-      }
-    }
+        statements: 70,
+      },
+    },
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src')
-    }
-  }
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
 });
