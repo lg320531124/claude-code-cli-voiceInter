@@ -51,6 +51,59 @@ function Chat() {
     saveMessagesToConversation,
   } = useConversationManager();
 
+  // Send message to Claude (defined early to be used in callbacks)
+  const sendToClaudeInternal = useCallback(
+    (text: string) => {
+      if ((!text.trim() && attachments.length === 0) || !isConnected || isProcessing) return;
+
+      let fullContent = text.trim();
+      if (attachments.length > 0) {
+        const attachmentInfo = attachments
+          .map(a =>
+            a.isImage
+              ? `[图片: ${a.name}]`
+              : `\n---\n文件: ${a.name}\n${a.content.slice(0, 500)}\n---`
+          )
+          .join('\n');
+        fullContent = fullContent + '\n' + attachmentInfo;
+      }
+
+      setIsSending(true);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'user',
+          content: fullContent,
+          isSending: true,
+          attachments:
+            attachments.length > 0
+              ? attachments.map(a => ({
+                  name: a.name,
+                  type: a.type,
+                  isImage: a.isImage,
+                  preview: a.isImage ? a.content : null,
+                }))
+              : undefined,
+        },
+      ]);
+      setInputText('');
+      setAttachments([]);
+      setIsProcessing(true);
+
+      setTimeout(() => {
+        setIsSending(false);
+        setMessages(prev =>
+          prev.map(m => (m.isSending && m.content === fullContent ? { ...m, isSending: false } : m))
+        );
+      }, 300);
+
+      voice.stopSpeaking?.();
+      sendMessage({ type: 'claude-command', command: fullContent, options: { cwd: '.' } });
+      inputRef.current?.focus();
+    },
+    [isConnected, isProcessing, sendMessage, voice, attachments, setMessages]
+  );
+
   // Save messages to conversation
   useEffect(() => {
     saveMessagesToConversation(messages);
@@ -59,9 +112,12 @@ function Chat() {
   // Voice interaction
   const voice = useVoiceInteraction({
     language: 'zh-CN',
-    onSpeechResult: useCallback((text: string) => {
-      if (text.trim()) sendToClaudeInternal(text);
-    }, []),
+    onSpeechResult: useCallback(
+      (text: string) => {
+        if (text.trim()) sendToClaudeInternal(text);
+      },
+      [sendToClaudeInternal]
+    ),
     autoSpeakResponse: true,
   });
 
@@ -98,107 +154,20 @@ function Chat() {
   const [currentTtsText, setCurrentTtsText] = useState('');
   const [currentSttText, setCurrentSttText] = useState('');
 
-  // Send message to Claude (defined early to be used in callbacks)
-  const sendToClaudeInternal = useCallback(
-    (text: string) => {
-      if ((!text.trim() && attachments.length === 0) || !isConnected || isProcessing) return;
-
-      let fullContent = text.trim();
-      if (attachments.length > 0) {
-        const attachmentInfo = attachments
-          .map(a => a.isImage ? `[图片: ${a.name}]` : `\n---\n文件: ${a.name}\n${a.content.slice(0, 500)}\n---`)
-          .join('\n');
-        fullContent = fullContent + '\n' + attachmentInfo;
-      }
-
-      setIsSending(true);
-      setMessages(prev => [...prev, {
-        role: 'user',
-        content: fullContent,
-        isSending: true,
-        attachments: attachments.length > 0 ? attachments.map(a => ({
-          name: a.name,
-          type: a.type,
-          isImage: a.isImage,
-          preview: a.isImage ? a.content : null,
-        })) : undefined,
-      }]);
-      setInputText('');
-      setAttachments([]);
-      setIsProcessing(true);
-
-      setTimeout(() => {
-        setIsSending(false);
-        setMessages(prev =>
-          prev.map(m => (m.isSending && m.content === fullContent ? { ...m, isSending: false } : m))
-        );
-      }, 300);
-
-      voice.stopSpeaking?.();
-      sendMessage({ type: 'claude-command', command: fullContent, options: { cwd: '.' } });
-      inputRef.current?.focus();
-    },
-    [isConnected, isProcessing, sendMessage, voice, attachments, setMessages]
-  );
-
-  // Command handler actions
-  const handleCommandAction = useCallback((action: string) => {
-    switch (action) {
-      case 'new-session':
-        sendMessage({ type: 'new-session' });
-        startNewConversation();
-        break;
-      case 'clear-messages':
-        clearMessages();
-        break;
-      case 'toggle-conversation-list':
-        setShowConversationList(prev => !prev);
-        break;
-      case 'open-skill-manager':
-        setShowSkillManager(true);
-        break;
-      case 'open-token-stats':
-        setShowTokenStats(true);
-        break;
-      case 'toggle-voice-input':
-        if (!conversationMode) handleVoiceClick();
-        break;
-      case 'toggle-conversation-mode':
-        handleConversationModeClick();
-        break;
-      case 'stop-voice-all':
-        handleStopAll();
-        break;
-      case 'escape':
-        setShowSkillManager(false);
-        setShowTokenStats(false);
-        setShowCommandSidebar(false);
-        setShowShortcutsHelp(false);
-        break;
-    }
-  }, [sendMessage, startNewConversation, clearMessages, handleVoiceClick, handleConversationModeClick, handleStopAll, conversationMode]);
-
-  // Keyboard shortcuts
-  useKeyboardShortcuts({
-    inputText,
-    inputRef,
-    isTyping: false,
-    onAction: handleCommandAction,
-    dependencies: {
-      conversationMode,
-      isListening: voice.isListening,
-      isSpeaking: voice.isSpeaking,
-    },
-  });
-
-  // Voice handlers
+  // Voice handlers (defined early for use in handleCommandAction)
   const handleVoiceClick = useCallback(() => {
     if (!voice.isSupported) {
-      setMessages(prev => [...prev, { role: 'error', content: '⚠️ 浏览器不支持语音识别。请使用 Chrome/Safari/Edge。' }]);
+      setMessages(prev => [
+        ...prev,
+        { role: 'error', content: '⚠️ 浏览器不支持语音识别。请使用 Chrome/Safari/Edge。' },
+      ]);
       return;
     }
     if (!voice.isInitialized) {
-      setMessages(prev => [...prev, { role: 'error', content: '⚠️ 语音功能尚未初始化，请稍后再试。' }]);
+      setMessages(prev => [
+        ...prev,
+        { role: 'error', content: '⚠️ 语音功能尚未初始化，请稍后再试。' },
+      ]);
       return;
     }
     if (voice.isSpeaking && voice.stopSpeaking) {
@@ -226,6 +195,67 @@ function Chat() {
     stopResponse();
   }, [voice, conversationMode, historyTTS, streamBufferRef, setIsProcessing, stopResponse]);
 
+  // Command handler actions
+  const handleCommandAction = useCallback(
+    (action: string) => {
+      switch (action) {
+        case 'new-session':
+          sendMessage({ type: 'new-session' });
+          startNewConversation();
+          break;
+        case 'clear-messages':
+          clearMessages();
+          break;
+        case 'toggle-conversation-list':
+          setShowConversationList(prev => !prev);
+          break;
+        case 'open-skill-manager':
+          setShowSkillManager(true);
+          break;
+        case 'open-token-stats':
+          setShowTokenStats(true);
+          break;
+        case 'toggle-voice-input':
+          if (!conversationMode) handleVoiceClick();
+          break;
+        case 'toggle-conversation-mode':
+          handleConversationModeClick();
+          break;
+        case 'stop-voice-all':
+          handleStopAll();
+          break;
+        case 'escape':
+          setShowSkillManager(false);
+          setShowTokenStats(false);
+          setShowCommandSidebar(false);
+          setShowShortcutsHelp(false);
+          break;
+      }
+    },
+    [
+      sendMessage,
+      startNewConversation,
+      clearMessages,
+      handleVoiceClick,
+      handleConversationModeClick,
+      handleStopAll,
+      conversationMode,
+    ]
+  );
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    inputText,
+    inputRef,
+    isTyping: false,
+    onAction: handleCommandAction,
+    dependencies: {
+      conversationMode,
+      isListening: voice.isListening,
+      isSpeaking: voice.isSpeaking,
+    },
+  });
+
   // New session
   const startNewSession = useCallback(() => {
     sendMessage({ type: 'new-session' });
@@ -233,34 +263,43 @@ function Chat() {
   }, [sendMessage, startNewConversation]);
 
   // Handle submit
-  const handleSubmit = useCallback((e?: React.FormEvent) => {
-    e?.preventDefault();
-    const text = inputText.trim();
+  const handleSubmit = useCallback(
+    (e?: React.FormEvent) => {
+      e?.preventDefault();
+      const text = inputText.trim();
 
-    if (text.startsWith('/')) {
-      setShowCommandPalette(false);
-      setInputText('');
-      // Handle commands
-      setMessages(prev => [...prev, { role: 'user', content: text }]);
-      return;
-    }
+      if (text.startsWith('/')) {
+        setShowCommandPalette(false);
+        setInputText('');
+        // Handle commands
+        setMessages(prev => [...prev, { role: 'user', content: text }]);
+        return;
+      }
 
-    sendToClaudeInternal(inputText);
-  }, [inputText, sendToClaudeInternal, setMessages]);
+      sendToClaudeInternal(inputText);
+    },
+    [inputText, sendToClaudeInternal, setMessages]
+  );
 
   // Command select handler
-  const handleCommandSelect = useCallback((command: any) => {
-    setShowCommandPalette(false);
-    setInputText('');
-    handleCommandAction(command.action);
-  }, [handleCommandAction]);
+  const handleCommandSelect = useCallback(
+    (command: any) => {
+      setShowCommandPalette(false);
+      setInputText('');
+      handleCommandAction(command.action);
+    },
+    [handleCommandAction]
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col">
       {/* Background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div
+          className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl animate-pulse"
+          style={{ animationDelay: '1s' }}
+        />
       </div>
 
       {/* Conversation List */}
@@ -315,7 +354,10 @@ function Chat() {
           {/* Voice Panel for conversation mode */}
           {conversationMode && (
             <VoicePanel
-              onUserSpeech={(text: string) => { setCurrentSttText(text); sendToClaudeInternal(text); }}
+              onUserSpeech={(text: string) => {
+                setCurrentSttText(text);
+                sendToClaudeInternal(text);
+              }}
               onAssistantSpeech={setCurrentTtsText}
               onInterimTranscript={setCurrentSttText}
               enabled={isConnected && !isProcessing}
