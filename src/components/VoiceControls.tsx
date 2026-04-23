@@ -1,5 +1,5 @@
 /**
- * VoiceControls - Voice input control buttons
+ * VoiceControls - Voice input control buttons (Modern UI)
  */
 import React from 'react';
 import { Mic, Volume2, Radio, StopCircle, Paperclip } from 'lucide-react';
@@ -36,31 +36,31 @@ export default function VoiceControls({
   const isVoiceActive = voice.isListening || voice.isSpeaking || conversationMode;
 
   return (
-    <div className="absolute right-3 bottom-3 flex gap-2">
+    <div className="absolute right-2 bottom-2.5 flex gap-1.5">
       {/* File Upload Button */}
       <button
         type="button"
         onClick={onFileUpload}
         disabled={isProcessing || !isConnected}
-        title="📎 上传文件/图片"
-        className="h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20 disabled:opacity-40"
+        title="上传文件"
+        className="h-9 w-9 rounded-xl flex items-center justify-center transition-all duration-200 bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80 hover:border-white/20 disabled:opacity-30"
       >
-        <Paperclip className="w-5 h-5" />
+        <Paperclip className="w-4 h-4" />
       </button>
 
-      {/* Stop Button - always visible */}
+      {/* Stop Button */}
       <button
         type="button"
         onClick={onStopAll}
         disabled={!isVoiceActive && !isProcessing}
-        title="⏹️ 停止 - 终止语音输入/输出、对话模式、响应生成"
-        className={`h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border ${
+        title="停止"
+        className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
           isVoiceActive || isProcessing
-            ? 'bg-gradient-to-r from-red-500 to-orange-500 border-red-400/50 text-white shadow-lg shadow-red-500/30 animate-pulse'
-            : 'bg-white/10 backdrop-blur-xl border-white/10 text-white/40 hover:bg-red-500/20 hover:text-red-400 hover:border-red-400/30'
+            ? 'bg-red-500/20 border border-red-500/30 text-red-400 animate-pulse'
+            : 'bg-white/5 border border-white/10 text-white/40 hover:bg-red-500/10 hover:text-red-400/80'
         } disabled:opacity-30 disabled:cursor-not-allowed`}
       >
-        <StopCircle className="w-5 h-5" />
+        <StopCircle className="w-4 h-4" />
       </button>
 
       {/* Conversation Mode Button */}
@@ -68,14 +68,14 @@ export default function VoiceControls({
         type="button"
         onClick={onConversationModeClick}
         disabled={isProcessing || !isConnected}
-        title={conversationMode ? '结束对话模式' : '开始双向对话'}
-        className={`h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border ${
+        title={conversationMode ? '结束对话' : '双向对话'}
+        className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
           conversationMode
-            ? 'bg-gradient-to-r from-green-500 to-teal-500 border-green-400/50 text-white shadow-lg shadow-green-500/30'
-            : 'bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20'
-        } disabled:opacity-40 disabled:cursor-not-allowed`}
+            ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
+            : 'bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80'
+        } disabled:opacity-30 disabled:cursor-not-allowed`}
       >
-        <Radio className="w-5 h-5" />
+        <Radio className="w-4 h-4" />
       </button>
 
       {/* Voice Button */}
@@ -83,30 +83,20 @@ export default function VoiceControls({
         type="button"
         onClick={onVoiceClick}
         disabled={isProcessing || !isConnected || conversationMode}
-        title={
-          !voice.isSupported
-            ? '⚠️ 浏览器不支持语音'
-            : voice.isListening
-              ? '🔴 点击停止录音'
-              : '🎤 点击开始语音输入'
-        }
-        className={`h-[40px] w-[40px] rounded-xl flex items-center justify-center transition-all duration-200 border ${
+        title={!voice.isSupported ? '不支持语音' : voice.isListening ? '停止录音' : '语音输入'}
+        className={`h-9 w-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
           conversationMode
-            ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-50'
+            ? 'bg-white/5 border border-white/10 text-white/30 cursor-not-allowed'
             : voice.isListening
-              ? 'bg-gradient-to-r from-red-500 to-orange-500 border-red-400/50 text-white shadow-lg shadow-red-500/30 animate-pulse'
+              ? 'bg-gradient-to-br from-red-500 to-orange-500 border border-red-400/50 text-white shadow-lg shadow-red-500/20'
               : voice.isSpeaking
-                ? 'bg-gradient-to-r from-purple-500 to-pink-500 border-purple-400/50 text-white shadow-lg shadow-purple-500/30'
+                ? 'bg-gradient-to-br from-violet-500 to-fuchsia-500 border border-violet-400/50 text-white'
                 : !voice.isSupported
-                  ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed'
-                  : 'bg-white/10 backdrop-blur-xl border-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:border-white/20'
-        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                  ? 'bg-white/5 border border-white/10 text-white/30 cursor-not-allowed'
+                  : 'bg-white/5 border border-white/10 text-white/50 hover:bg-violet-500/10 hover:text-violet-400 hover:border-violet-500/30'
+        } disabled:opacity-30 disabled:cursor-not-allowed`}
       >
-        {voice.isSpeaking ? (
-          <Volume2 className="w-5 h-5 animate-pulse" />
-        ) : (
-          <Mic className="w-5 h-5" />
-        )}
+        {voice.isSpeaking ? <Volume2 className="w-4 h-4 animate-pulse" /> : <Mic className="w-4 h-4" />}
       </button>
 
       {/* Hidden file input */}

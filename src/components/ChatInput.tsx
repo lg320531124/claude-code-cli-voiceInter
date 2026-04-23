@@ -164,9 +164,9 @@ export default function ChatInput({
   };
 
   return (
-    <footer className="sticky bottom-0 z-20 px-6 py-4 bg-slate-900/90 backdrop-blur-xl border-t border-white/10">
+    <footer className="sticky bottom-0 z-20 px-4 py-3 bg-slate-950/90 backdrop-blur-xl border-t border-white/5">
       <div className="max-w-3xl mx-auto">
-        <form onSubmit={onSubmit} className="flex items-end gap-4">
+        <form onSubmit={onSubmit} className="flex items-end gap-3">
           <div className="flex-1 relative flex items-end">
             {/* Command Palette */}
             <CommandPalette
@@ -177,11 +177,11 @@ export default function ChatInput({
 
             {/* Attachment Preview */}
             {attachments.length > 0 && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 flex gap-2 p-2 bg-gray-800/90 rounded-xl border border-gray-700/50 overflow-x-auto max-w-full">
+              <div className="absolute bottom-full left-0 right-0 mb-2 flex gap-2 p-2 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 overflow-x-auto max-w-full">
                 {attachments.map(attachment => (
                   <div key={attachment.id} className="relative flex-shrink-0 group">
                     {attachment.isImage ? (
-                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-700">
+                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-white/10">
                         <img
                           src={attachment.content}
                           alt={attachment.name}
@@ -189,13 +189,13 @@ export default function ChatInput({
                         />
                       </div>
                     ) : (
-                      <div className="w-16 h-16 rounded-lg bg-gray-700 flex items-center justify-center p-2">
-                        <FileText className="w-6 h-6 text-gray-400" />
+                      <div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center p-2">
+                        <FileText className="w-5 h-5 text-white/50" />
                       </div>
                     )}
                     <button
                       onClick={() => removeAttachment(attachment.id)}
-                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -206,20 +206,33 @@ export default function ChatInput({
 
             {/* Listening indicator */}
             {!conversationMode && voice.isListening && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 p-2 bg-red-500/20 backdrop-blur-xl rounded-xl border border-red-500/30">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-xs text-red-400 font-medium">录音中...</span>
+              <div className="absolute bottom-full left-0 right-0 mb-2 p-3 bg-gradient-to-r from-red-500/20 to-orange-500/20 backdrop-blur-xl rounded-xl border border-red-500/20">
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-1">
+                    <span
+                      className="w-1 h-4 rounded-full bg-red-500 animate-pulse"
+                      style={{ animationDelay: '0ms' }}
+                    />
+                    <span
+                      className="w-1 h-4 rounded-full bg-red-500 animate-pulse"
+                      style={{ animationDelay: '150ms' }}
+                    />
+                    <span
+                      className="w-1 h-4 rounded-full bg-red-500 animate-pulse"
+                      style={{ animationDelay: '300ms' }}
+                    />
+                  </div>
+                  <span className="text-sm text-red-400 font-medium">录音中...</span>
                   {voice.interimTranscript && (
-                    <span className="text-sm text-white/80 truncate max-w-[200px]">
+                    <span className="text-sm text-white/70 truncate max-w-[200px]">
                       "{voice.interimTranscript}"
                     </span>
                   )}
                   <button
                     onClick={onVoiceClick}
-                    className="ml-auto text-xs text-red-400 hover:text-red-300"
+                    className="ml-auto text-xs text-red-400/70 hover:text-red-400"
                   >
-                    点击停止
+                    停止
                   </button>
                 </div>
               </div>
@@ -233,19 +246,15 @@ export default function ChatInput({
               onKeyDown={handleKeyDown}
               onCompositionStart={handleCompositionStart}
               onCompositionEnd={handleCompositionEnd}
-              placeholder={
-                attachments.length > 0
-                  ? '添加描述或直接发送...'
-                  : 'Message Claude... or type / for commands'
-              }
+              placeholder={attachments.length > 0 ? '添加描述...' : 'Message Claude...'}
               disabled={isProcessing}
               rows={1}
-              className={`w-full px-6 py-4 pr-14 backdrop-blur-xl border rounded-3xl text-white placeholder-white/40 focus:outline-none resize-none transition-all duration-200 disabled:opacity-50 text-[15px] ${
+              className={`w-full px-5 py-3.5 pr-12 backdrop-blur-xl border rounded-2xl text-white/95 placeholder-white/30 focus:outline-none resize-none transition-all duration-200 disabled:opacity-50 text-sm ${
                 attachments.length > 0
-                  ? 'border-blue-500/40 bg-blue-500/10'
+                  ? 'border-violet-500/30 bg-violet-500/5'
                   : inputText.trim() && !isProcessing
-                    ? 'bg-white/15 border-purple-500/40 shadow-lg shadow-purple-500/10'
-                    : 'bg-white/10 border-white/10 focus:border-purple-500/50 focus:bg-white/15'
+                    ? 'bg-white/8 border-violet-500/20'
+                    : 'bg-white/5 border-white/10 focus:border-violet-500/30 focus:bg-white/8'
               }`}
               style={{ minHeight: '56px', maxHeight: '200px', height: 'auto' }}
             />
