@@ -159,7 +159,7 @@ class MemoryMonitor {
 
       // 估算 IndexedDB 大小
       if (window.indexedDB) {
-        const estimate = await this.estimateIndexedDBUsage('tts-audio-cache');
+        const estimate = await this.estimateIndexedDBUsage('claude-voiceinter');
         indexedDBSize = estimate || indexedDBSize;
       }
     } catch (e) {
@@ -223,7 +223,12 @@ class MemoryMonitor {
             }
           }
 
-          db.close();
+          // Ensure DB is always closed
+          try {
+            db.close();
+          } catch {
+            // Ignore close errors
+          }
           resolve(totalSize);
         };
       });
@@ -378,13 +383,13 @@ class MemoryMonitor {
         // 清理 IndexedDB TTS 缓存
         if (window.indexedDB) {
           const db = await new Promise<IDBDatabase>((resolve, reject) => {
-            const request = indexedDB.open('tts-audio-cache');
+            const request = indexedDB.open('claude-voiceinter');
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
           });
 
-          const transaction = db.transaction(['audio-cache'], 'readwrite');
-          const store = transaction.objectStore('audio-cache');
+          const transaction = db.transaction(['tts-audio'], 'readwrite');
+          const store = transaction.objectStore('tts-audio');
           store.clear();
 
           db.close();
@@ -418,5 +423,13 @@ const memoryMonitor = new MemoryMonitor();
 
 // 导出
 export { MemoryMonitor, memoryMonitor };
-export type { MemoryMetrics, MemoryThresholds, MemoryAlert, MemoryUpdateEvent, MemoryReport, CleanupOptions, MemoryLevel };
+export type {
+  MemoryMetrics,
+  MemoryThresholds,
+  MemoryAlert,
+  MemoryUpdateEvent,
+  MemoryReport,
+  CleanupOptions,
+  MemoryLevel,
+};
 export default memoryMonitor;

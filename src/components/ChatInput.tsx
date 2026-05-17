@@ -5,15 +5,7 @@ import React, { useState, useRef } from 'react';
 import { Send, FileText, X } from 'lucide-react';
 import VoiceControls from './VoiceControls';
 import CommandPalette from './CommandPalette';
-
-interface Attachment {
-  id: number;
-  name: string;
-  type: string;
-  size: number;
-  content: string;
-  isImage: boolean;
-}
+import type { Attachment } from '../types/message';
 
 interface Message {
   role: 'user' | 'assistant' | 'error';
@@ -196,6 +188,7 @@ export default function ChatInput({
                     <button
                       onClick={() => removeAttachment(attachment.id)}
                       className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label={`移除附件 ${attachment.name}`}
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -231,6 +224,7 @@ export default function ChatInput({
                   <button
                     onClick={onVoiceClick}
                     className="ml-auto text-xs text-red-400/70 hover:text-red-400"
+                    aria-label="停止录音"
                   >
                     停止
                   </button>
@@ -251,10 +245,10 @@ export default function ChatInput({
               rows={1}
               className={`w-full px-5 py-3.5 pr-12 backdrop-blur-xl border rounded-2xl text-white/95 placeholder-white/30 focus:outline-none resize-none transition-all duration-200 disabled:opacity-50 text-sm ${
                 attachments.length > 0
-                  ? 'border-violet-500/30 bg-violet-500/5'
+                  ? 'border-violet-500/30 bg-violet-500/10'
                   : inputText.trim() && !isProcessing
-                    ? 'bg-white/8 border-violet-500/20'
-                    : 'bg-white/5 border-white/10 focus:border-violet-500/30 focus:bg-white/8'
+                    ? 'bg-slate-900/80 border-violet-500/20'
+                    : 'bg-slate-900/60 border-white/10 focus:border-violet-500/30 focus:bg-slate-900/80'
               }`}
               style={{ minHeight: '56px', maxHeight: '200px', height: 'auto' }}
             />
@@ -298,6 +292,7 @@ export default function ChatInput({
             type="submit"
             disabled={!inputText.trim() || !isConnected || isProcessing}
             title="发送消息给 Claude (Enter)"
+            aria-label="发送消息"
             className={`h-[56px] w-[56px] rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center shadow-lg transition-all duration-200 disabled:opacity-50 disabled:shadow-none group ${
               isSending
                 ? 'scale-95 shadow-purple-300/40 animate-pulse'
@@ -314,8 +309,7 @@ export default function ChatInput({
 
         {/* Hint */}
         <p className="text-center text-xs text-white/30 mt-4">
-          💡 Tips: Enter 发送 | Shift+Enter 换行 | 输入 / 显示命令 | ⌨️ ⌘? 快捷键 | 🎤
-          语音填充输入框后手动发送
+          💡 Tips: Enter 发送 | Shift+Enter 换行 | 🎤 录音后自动填充
         </p>
       </div>
     </footer>

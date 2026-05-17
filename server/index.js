@@ -23,6 +23,7 @@ import {
   validateCliCommand,
   checkRateLimit,
   cleanupRateLimits,
+  startRateLimitCleanup,
 } from './security.js';
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
 
@@ -57,12 +58,46 @@ async function checkService(url) {
 const DEFAULT_PROJECT_PATH = process.cwd();
 let PROJECT_PATH = process.env.PROJECT_PATH || DEFAULT_PROJECT_PATH;
 
+// Validate project path to prevent directory traversal
+function validateProjectPath(inputPath) {
+  if (!inputPath || typeof inputPath !== 'string') return DEFAULT_PROJECT_PATH;
+  const resolved = path.resolve(inputPath);
+  const homeDir = os.homedir();
+  // Only allow paths under home directory or well-known dev directories
+  if (
+    !resolved.startsWith(homeDir) &&
+    !resolved.startsWith('/tmp') &&
+    !resolved.startsWith(DEFAULT_PROJECT_PATH)
+  ) {
+    logger.warn('Blocked invalid project path:', { path: inputPath });
+    return DEFAULT_PROJECT_PATH;
+  }
+  return resolved;
+}
+PROJECT_PATH = validateProjectPath(PROJECT_PATH);
+
 // Create Express app
 const app = express();
 const server = http.createServer(app);
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
+
+// CORS - restrict to same origin in production, allow all in development
+app.use((req, res, next) => {
+  const allowedOrigins =
+    process.env.NODE_ENV === 'production'
+      ? [process.env.APP_ORIGIN || `http://localhost:${PORT}`]
+      : ['http://localhost:5173', `http://localhost:${PORT}`];
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
@@ -95,10 +130,8 @@ const heartbeatCheck = setInterval(() => {
   });
 }, HEARTBEAT_INTERVAL);
 
-// Periodic cleanup of rate limits
-setInterval(() => {
-  cleanupRateLimits();
-}, 60000);
+// Start automatic rate limit cleanup
+startRateLimitCleanup();
 
 // ============================================
 // CLI COMMAND EXECUTION
@@ -529,6 +562,20 @@ function handleChatConnection(ws) {
         // Stop current streaming response
         logger.info('Stop response requested');
 
+        // Send Ctrl+C (\x03) to Claude's stdin to interrupt current response
+        if (claudeInstance && !claudeInstance.killed && claudeInstance.stdin.writable) {
+          try {
+            claudeInstance.stdin.write('\x03');
+            logger.info('Sent interrupt signal to Claude instance');
+          } catch (e) {
+            logger.error('Failed to send interrupt:', { error: e.message });
+            // Fallback: try SIGINT if stdin write fails
+            try {
+              claudeInstance.kill('SIGINT');
+            } catch {}
+          }
+        }
+
         // Notify all clients that response was stopped
         broadcastToClients({
           type: 'response-stopped',
@@ -751,81 +798,22 @@ function handleChatConnection(ws) {
             })
           );
         }
-
-        // ============================================
-        // CLI COMMAND EXECUTION
-        // ============================================
-      } else if (data.type === 'cli-command') {
-        try {
-          const { command, args = [] } = data;
-          logger.info('CLI Executing:', { command, args: args.join(' ') });
-
-          // Build full command
-          const fullArgs = [command, ...args];
-
-          // Spawn CLI process
-          const cliProcess = spawn(CLAUDE_PATH, fullArgs, {
-            cwd: PROJECT_PATH,
-            env: {
-              ...process.env,
-              HOME: process.env.HOME || '/Users/lg',
-            },
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-
-          let output = '';
-          let errorOutput = '';
-
-          cliProcess.stdout.on('data', data => {
-            output += data.toString();
-          });
-
-          cliProcess.stderr.on('data', data => {
-            errorOutput += data.toString();
-          });
-
-          cliProcess.on('close', exitCode => {
-            logger.info('CLI Exit code:', { exitCode });
-
-            ws.send(
-              JSON.stringify({
-                type: 'cli-result',
-                command: command,
-                args: args,
-                exitCode,
-                output: output.trim(),
-                error: errorOutput.trim(),
-              })
-            );
-          });
-
-          cliProcess.on('error', err => {
-            logger.error('CLI Error:', { error: err.message });
-            ws.send(
-              JSON.stringify({
-                type: 'cli-error',
-                command: command,
-                error: err.message,
-              })
-            );
-          });
-        } catch (error) {
-          logger.error('CLI command:', { error: error.message });
-          ws.send(
-            JSON.stringify({
-              type: 'error',
-              error: 'Failed to execute CLI command',
-            })
-          );
-        }
       } else if (data.type === 'cli-command-with-input') {
         try {
           const { command, args = [], inputValue } = data;
+
+          // Security: validate CLI command
+          const validation = validateCliCommand(command, args);
+          if (!validation.valid) {
+            ws.send(JSON.stringify({ type: 'error', error: validation.error }));
+            return;
+          }
+
           logger.info('CLI Executing with input:', { command, args: args.join(' ') });
 
           // Build full command - add inputValue as argument if needed
-          let fullArgs = [command, ...args];
-          if (inputValue) {
+          let fullArgs = [validation.command, ...validation.args];
+          if (inputValue && typeof inputValue === 'string' && inputValue.length <= 256) {
             fullArgs.push(inputValue);
           }
 
@@ -834,7 +822,7 @@ function handleChatConnection(ws) {
             cwd: PROJECT_PATH,
             env: {
               ...process.env,
-              HOME: process.env.HOME || '/Users/lg',
+              HOME: os.homedir(),
             },
             stdio: ['pipe', 'pipe', 'pipe'],
           });
@@ -937,10 +925,25 @@ app.get('/api/voice/status', async (req, res) => {
 });
 
 // Whisper STT - 接收音频，返回转录文本
+const ALLOWED_AUDIO_TYPES = [
+  'audio/webm',
+  'audio/wav',
+  'audio/mp3',
+  'audio/ogg',
+  'audio/flac',
+  'audio/x-m4a',
+];
+
 app.post('/api/voice/stt', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: '需要音频文件' });
+    }
+
+    // Validate audio file type
+    const mimeType = req.file.mimetype;
+    if (!ALLOWED_AUDIO_TYPES.includes(mimeType)) {
+      return res.status(400).json({ success: false, error: `不支持的音频格式: ${mimeType}` });
     }
 
     const audioBuffer = req.file.buffer;

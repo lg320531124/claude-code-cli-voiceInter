@@ -1,7 +1,7 @@
 /**
  * useConversationManager - Manages conversation persistence and switching
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import logger from '../utils/logger';
 import {
   loadConversations,
@@ -44,6 +44,9 @@ export function useConversationManager() {
   });
   const [showConversationList, setShowConversationList] = useState(true);
 
+  // Ref to track conversation switching - suppresses saves during transition
+  const switchingRef = useRef(false);
+
   // Auto-create first conversation if none exist
   useEffect(() => {
     if (conversations.length === 0) {
@@ -58,14 +61,16 @@ export function useConversationManager() {
   }, []);
 
   // Switch to a different conversation
-  const handleConversationSelect = useCallback(
-    (convId: string) => {
-      setActiveConversationIdState(convId);
-      setActiveConversationId(convId);
-      logger.debug('Switched to conversation:', { id: convId });
-    },
-    []
-  );
+  const handleConversationSelect = useCallback((convId: string) => {
+    switchingRef.current = true;
+    setActiveConversationIdState(convId);
+    setActiveConversationId(convId);
+    // Clear switching flag after transition settles
+    setTimeout(() => {
+      switchingRef.current = false;
+    }, 100);
+    logger.debug('Switched to conversation:', { id: convId });
+  }, []);
 
   // Create a new conversation
   const handleConversationCreate = useCallback(
@@ -97,13 +102,17 @@ export function useConversationManager() {
   // Save messages to current conversation
   const saveMessagesToConversation = useCallback(
     (messages: Message[]) => {
+      // Skip saving during conversation switch to prevent overwriting with stale data
+      if (switchingRef.current) return;
       if (activeConversationId && messages.length > 0) {
+        // Use current conversations state (not reloading from localStorage)
+        // updateConversation already calls saveConversations internally
         const updated = updateConversation(conversations, activeConversationId, { messages });
         setConversations(updated);
-        saveConversations(updated);
+        // Do NOT call saveConversations here - updateConversation already saved
       }
     },
-    [conversations, activeConversationId]
+    [activeConversationId, conversations]
   );
 
   // Load messages from a conversation
@@ -116,15 +125,25 @@ export function useConversationManager() {
   );
 
   // Create new conversation and switch to it
-  const startNewConversation = useCallback(() => {
-    const newConv = createConversation();
-    const updated = [...conversations, newConv];
-    setConversations(updated);
-    saveConversations(updated);
-    setActiveConversationIdState(newConv.id);
-    setActiveConversationId(newConv.id);
-    return newConv;
-  }, [conversations]);
+  const startNewConversation = useCallback(
+    (clearMessages?: () => void) => {
+      switchingRef.current = true;
+      const newConv = createConversation();
+      const updated = [...conversations, newConv];
+      setConversations(updated);
+      saveConversations(updated);
+      setActiveConversationIdState(newConv.id);
+      setActiveConversationId(newConv.id);
+      // Clear messages if callback provided (to prevent stale messages being saved)
+      clearMessages?.();
+      // Clear switching flag after transition settles
+      setTimeout(() => {
+        switchingRef.current = false;
+      }, 100);
+      return newConv;
+    },
+    [conversations]
+  );
 
   return {
     conversations,

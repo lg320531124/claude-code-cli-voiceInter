@@ -3,8 +3,8 @@
  * Handles conversation state, commands, and transitions
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useBidirectionalVoice } from '../hooks/useEnhancedVoice';
 import { useHybridTTS } from '../hooks/useHybridTTS';
+import { useBidirectionalVoice } from '../hooks/useEnhancedVoice';
 import { matchVoiceCommand } from '../utils/voiceCommands';
 import { getSTTLanguageCode, getTTSLanguageCode } from '../utils/languageDetection';
 import logger from '../utils/logger';
@@ -68,7 +68,7 @@ export function useVoicePanelLogic(options: Options): Result {
 
   // Hybrid TTS for assistant speech
   const tts = useHybridTTS({
-    voice: getTTSLanguageCode(currentLanguage, 'kokoro'),
+    voice: getTTSLanguageCode(currentLanguage),
     speed: 1.0,
     language: currentLanguage,
     preferKokoro: true,
@@ -77,52 +77,71 @@ export function useVoicePanelLogic(options: Options): Result {
   // Bidirectional voice for conversation mode
   const voice = useBidirectionalVoice({
     language: getSTTLanguageCode(currentLanguage),
-    voice: getTTSLanguageCode(currentLanguage, 'kokoro'),
+    voice: getTTSLanguageCode(currentLanguage),
     autoContinue,
     interruptionEnabled,
     silenceThreshold: 2000,
     accumulateTranscript: true,
-    onUserSpeech: useCallback((text: string) => {
-      setLastUserText(text);
+    onUserSpeech: useCallback(
+      (text: string) => {
+        setLastUserText(text);
 
-      // Check for voice commands
-      const commandMatch = matchVoiceCommand(text);
-      if (commandMatch) {
-        logger.info('Voice command matched:', { action: commandMatch.action });
-        onCommandExecute?.(commandMatch.action, commandMatch.id);
-        return;
-      }
+        // Check for voice commands
+        const commandMatch = matchVoiceCommand(text);
+        if (commandMatch) {
+          logger.info('Voice command matched:', { action: commandMatch.action });
+          onCommandExecute?.(commandMatch.action, commandMatch.id);
+          return;
+        }
 
-      onUserSpeech?.(text);
-    }, [onUserSpeech, onCommandExecute]),
-    onAssistantSpeech: useCallback((text: string) => {
-      setLastAssistantText(text);
-      onAssistantSpeech?.(text);
-    }, [onAssistantSpeech]),
+        onUserSpeech?.(text);
+      },
+      [onUserSpeech, onCommandExecute]
+    ),
+    onAssistantSpeech: useCallback(
+      (text: string) => {
+        setLastAssistantText(text);
+        onAssistantSpeech?.(text);
+      },
+      [onAssistantSpeech]
+    ),
   });
+
+  // Use refs to avoid recreating callbacks when child hook objects change
+  const voiceStartRef = useRef(voice.startConversation);
+  const voiceStopRef = useRef(voice.endConversation);
+  const voiceSpeakRef = useRef(voice.speakResponse);
+  const ttsStopRef = useRef(tts.stop);
+
+  useEffect(() => {
+    voiceStartRef.current = voice.startConversation;
+    voiceStopRef.current = voice.endConversation;
+    voiceSpeakRef.current = voice.speakResponse;
+    ttsStopRef.current = tts.stop;
+  }, [voice.startConversation, voice.endConversation, voice.speakResponse, tts.stop]);
 
   // Start conversation
   const start = useCallback(() => {
     if (!enabled) return;
     setError(null);
     setIsActive(true);
-    voice.startConversation();
-  }, [enabled, voice]);
+    voiceStartRef.current();
+  }, [enabled]);
 
   // Stop conversation
   const stop = useCallback(() => {
     setIsActive(false);
-    voice.endConversation();
-    tts.stop();
+    voiceStopRef.current();
+    ttsStopRef.current();
     setLastUserText('');
     setLastAssistantText('');
-  }, [voice, tts]);
+  }, []);
 
   // Speak assistant response
   const speak = useCallback((text: string) => {
     if (!text.trim()) return;
-    voice.speakResponse(text);
-  }, [voice]);
+    voiceSpeakRef.current(text);
+  }, []);
 
   // Handle interim transcript
   useEffect(() => {

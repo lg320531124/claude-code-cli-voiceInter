@@ -6,7 +6,15 @@
 // - Input state
 // - Processing state
 
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from 'react';
 import logger from '../utils/logger';
 import {
   loadConversations,
@@ -129,7 +137,6 @@ export function ChatProvider({ children }) {
   const handleConversationSelect = useCallback(
     convId => {
       setActiveConversationId(convId);
-      setActiveConversationId(convId);
 
       const conv = getConversation(conversations, convId);
       if (conv && conv.messages) {
@@ -165,7 +172,6 @@ export function ChatProvider({ children }) {
     setConversations(updated);
     saveConversations(updated);
     setActiveConversationId(newConv.id);
-    setActiveConversationId(newConv.id);
     setMessages([]);
     setSessionId(null);
   }, [conversations]);
@@ -174,11 +180,11 @@ export function ChatProvider({ children }) {
     setMessages([]);
   }, []);
 
-  const addMessage = useCallback((message) => {
+  const addMessage = useCallback(message => {
     setMessages(prev => [...prev, message]);
   }, []);
 
-  const updateLastMessage = useCallback((content) => {
+  const updateLastMessage = useCallback(content => {
     setMessages(prev => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
@@ -189,59 +195,85 @@ export function ChatProvider({ children }) {
     });
   }, []);
 
-  // Value object
-  const value = {
-    // State
-    conversations,
-    activeConversationId,
-    showConversationList,
-    messages,
-    inputText,
-    isProcessing,
-    isSending,
-    isComposing,
-    sessionId,
-    claudeReady,
-    currentModel,
-    effortLevel,
-    compactMode,
-    fastMode,
-    conversationMode,
-    tokenUsage,
-    memoryUsage,
+  // Memoized value object — prevents unnecessary re-renders of all consumers
+  // when any single state changes (e.g., isComposing from IME input)
+  const value = useMemo(
+    () => ({
+      // State
+      conversations,
+      activeConversationId,
+      showConversationList,
+      messages,
+      inputText,
+      isProcessing,
+      isSending,
+      isComposing,
+      sessionId,
+      claudeReady,
+      currentModel,
+      effortLevel,
+      compactMode,
+      fastMode,
+      conversationMode,
+      tokenUsage,
+      memoryUsage,
 
-    // Refs
-    streamBufferRef,
-    messagesEndRef,
+      // Refs
+      streamBufferRef,
+      messagesEndRef,
 
-    // Setters
-    setConversations,
-    setActiveConversationId,
-    setShowConversationList,
-    setMessages,
-    setInputText,
-    setIsProcessing,
-    setIsSending,
-    setIsComposing,
-    setSessionId,
-    setClaudeReady,
-    setCurrentModel,
-    setEffortLevel,
-    setCompactMode,
-    setFastMode,
-    setConversationMode,
-    setTokenUsage,
-    setMemoryUsage,
+      // Setters
+      setConversations,
+      setActiveConversationId,
+      setShowConversationList,
+      setMessages,
+      setInputText,
+      setIsProcessing,
+      setIsSending,
+      setIsComposing,
+      setSessionId,
+      setClaudeReady,
+      setCurrentModel,
+      setEffortLevel,
+      setCompactMode,
+      setFastMode,
+      setConversationMode,
+      setTokenUsage,
+      setMemoryUsage,
 
-    // Actions
-    handleConversationSelect,
-    handleConversationCreate,
-    handleConversationDelete,
-    startNewConversation,
-    clearMessages,
-    addMessage,
-    updateLastMessage,
-  };
+      // Actions
+      handleConversationSelect,
+      handleConversationCreate,
+      handleConversationDelete,
+      startNewConversation,
+      clearMessages,
+      addMessage,
+      updateLastMessage,
+    }),
+    [
+      conversations,
+      activeConversationId,
+      showConversationList,
+      messages,
+      inputText,
+      isProcessing,
+      isSending,
+      isComposing,
+      sessionId,
+      claudeReady,
+      currentModel,
+      effortLevel,
+      compactMode,
+      fastMode,
+      conversationMode,
+      tokenUsage,
+      memoryUsage,
+      handleConversationSelect,
+      handleConversationCreate,
+      handleConversationDelete,
+      startNewConversation,
+    ]
+  );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

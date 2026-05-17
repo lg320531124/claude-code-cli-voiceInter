@@ -2,7 +2,7 @@
  * VoicePanel - Voice control panel UI component
  * Uses useVoicePanelLogic for core functionality
  */
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { Mic, MicOff, Volume2, Radio, Settings, X, Loader2, CheckCircle } from 'lucide-react';
 import { useVoicePanelLogic } from '../hooks/useVoicePanelLogic';
 import VoiceWaveform from './VoiceWaveform';
@@ -21,7 +21,7 @@ interface VoicePanelProps {
   interruptionEnabled?: boolean;
 }
 
-export default function VoicePanel({
+const VoicePanelInner = memo(function VoicePanelInner({
   onUserSpeech,
   onAssistantSpeech,
   onInterimTranscript,
@@ -89,6 +89,7 @@ export default function VoicePanel({
             onClick={() => setShowLanguageSelector(!showLanguageSelector)}
             className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white/70"
             title="语言设置"
+            aria-label="语言设置"
           >
             🌐
           </button>
@@ -96,6 +97,7 @@ export default function VoicePanel({
             onClick={() => setShowSettings(!showSettings)}
             className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white/70"
             title="TTS设置"
+            aria-label="TTS设置"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -104,6 +106,7 @@ export default function VoicePanel({
               onClick={stop}
               className="p-2 rounded-lg bg-red-500/30 hover:bg-red-500/50 text-red-400"
               title="停止"
+              aria-label="停止对话"
             >
               <X className="w-4 h-4" />
             </button>
@@ -157,6 +160,7 @@ export default function VoicePanel({
             onClick={start}
             disabled={!sttReady || !ttsReady}
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-green-500 to-teal-500 text-white font-medium hover:from-green-600 hover:to-teal-600 transition-all disabled:opacity-50"
+            aria-label="开始对话"
           >
             开始对话
           </button>
@@ -186,7 +190,9 @@ export default function VoicePanel({
       )}
     </div>
   );
-}
+});
+
+export default VoicePanelInner;
 
 // Export hook for external use
 export { useVoicePanelLogic } from '../hooks/useVoicePanelLogic';

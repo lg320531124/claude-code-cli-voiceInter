@@ -12,7 +12,7 @@ vi.mock('../../contexts/WebSocketContext', () => ({
     isConnected: true,
     sendMessage: vi.fn(),
     disconnect: vi.fn(),
-  })
+  }),
 }));
 
 // Mock Chat context
@@ -23,100 +23,139 @@ vi.mock('../../contexts/ChatContext', () => ({
     inputText: '',
     setInputText: vi.fn(),
     isProcessing: false,
-  })
+  }),
 }));
 
 // Mock all child components
 vi.mock('../../components/ChatHeader', () => ({
-  default: () => <div data-testid="chat-header">Header</div>
+  default: () => <div data-testid="chat-header">Header</div>,
 }));
 
 vi.mock('../../components/MessageList', () => ({
-  default: () => <div data-testid="message-list">Messages</div>
+  default: () => <div data-testid="message-list">Messages</div>,
 }));
 
 vi.mock('../../components/ChatInput', () => ({
-  default: () => <div data-testid="chat-input">Input</div>
+  default: () => <div data-testid="chat-input">Input</div>,
 }));
 
 vi.mock('../../components/VoicePanel', () => ({
-  default: () => <div data-testid="voice-panel">Voice Panel</div>
+  default: () => <div data-testid="voice-panel">Voice Panel</div>,
 }));
 
 vi.mock('../../components/ChatModals', () => ({
-  default: () => <div data-testid="chat-modals">Modals</div>
+  default: () => <div data-testid="chat-modals">Modals</div>,
 }));
 
-// Mock hooks with async importOriginal pattern
-vi.mock('../../hooks/useMessageHandler', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    default: () => ({
-      messages: [],
-      sendMessage: vi.fn(),
-      addMessage: vi.fn(),
-      stopResponse: vi.fn(),
-      isStreaming: false,
-      streamingContent: '',
-      stopStreaming: vi.fn()
-    })
-  };
-});
+vi.mock('../../components/ConversationList', () => ({
+  default: () => <div data-testid="conversation-list">Conversations</div>,
+}));
 
-vi.mock('../../hooks/useConversationManager', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    default: () => ({
-      conversations: [],
-      currentConversation: null,
-      saveConversation: vi.fn(),
-      loadConversation: vi.fn(),
-      clearConversation: vi.fn()
-    })
-  };
-});
+// Mock hooks - updated to use new module structure with named exports
+vi.mock('../../hooks/useMessageHandler', () => ({
+  useMessageHandler: () => ({
+    messages: [],
+    setMessages: vi.fn(),
+    sendMessage: vi.fn(),
+    addMessage: vi.fn(),
+    stopResponse: vi.fn(),
+    isStreaming: false,
+    streamingContent: '',
+    stopStreaming: vi.fn(),
+    isProcessing: false,
+    setIsProcessing: vi.fn(),
+    sessionId: 'test-session',
+    claudeReady: true,
+    tokenUsage: { cumulative: { totalCostUsd: 0 } },
+    streamBufferRef: { current: '' },
+    messagesEndRef: { current: null },
+    clearMessages: vi.fn(),
+  }),
+}));
 
-vi.mock('../../hooks/useKeyboardShortcuts', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    default: () => ({})
-  };
-});
+vi.mock('../../hooks/useConversationManager', () => ({
+  useConversationManager: () => ({
+    conversations: [],
+    setConversations: vi.fn(),
+    activeConversationId: 'test-conv',
+    showConversationList: true,
+    setShowConversationList: vi.fn(),
+    handleConversationSelect: vi.fn(),
+    handleConversationDelete: vi.fn(),
+    saveMessagesToConversation: vi.fn(),
+    startNewConversation: vi.fn(),
+    loadMessagesFromConversation: vi.fn(() => []),
+  }),
+}));
 
-vi.mock('../../hooks/useCommandHandler', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    default: () => ({
-      executeCommand: vi.fn()
-    })
-  };
-});
+vi.mock('../../hooks/useKeyboardShortcuts', () => ({
+  useKeyboardShortcuts: () => ({}),
+}));
 
-vi.mock('../../hooks/useVoicePanelLogic', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    default: () => ({
-      isActive: false,
-      isListening: false,
-      isSpeaking: false,
-      currentSpeaker: null,
-      interimTranscript: '',
-      error: null,
-      start: vi.fn(),
-      stop: vi.fn(),
-      speak: vi.fn(),
-      language: 'zh-CN',
-      setLanguage: vi.fn(),
-      sttReady: true,
-      ttsReady: true
-    })
-  };
-});
+vi.mock('../../hooks/useCommandHandler', () => ({
+  useCommandHandler: () => ({
+    executeCommand: vi.fn(),
+  }),
+}));
+
+// Mock useVoiceInteraction from new module
+vi.mock('../../hooks/useVoiceInteraction', () => ({
+  useVoiceInteraction: () => ({
+    isListening: false,
+    isSpeaking: false,
+    transcript: '',
+    interimTranscript: '',
+    error: null,
+    errorMessage: null,
+    startListening: vi.fn(),
+    stopListening: vi.fn(),
+    toggleListening: vi.fn(),
+    speak: vi.fn(),
+    stopSpeaking: vi.fn(),
+    speakResponse: vi.fn(),
+    isSupported: true,
+    isInitialized: true,
+    isActive: false,
+  }),
+}));
+
+// Mock useHybridTTS
+vi.mock('../../hooks/useHybridTTS', () => ({
+  useHybridTTS: () => ({
+    isSpeaking: false,
+    currentMode: 'kokoro',
+    kokoroReady: true,
+    browserReady: true,
+    voices: [],
+    selectedVoice: null,
+    setSelectedVoice: vi.fn(),
+    speak: vi.fn(),
+    stop: vi.fn(),
+    switchMode: vi.fn(),
+    isSupported: true,
+    clearCache: vi.fn(),
+    getCacheStats: vi.fn(),
+    enableCache: true,
+  }),
+}));
+
+vi.mock('../../hooks/useVoicePanelLogic', () => ({
+  useVoicePanelLogic: () => ({
+    isActive: false,
+    isListening: false,
+    isSpeaking: false,
+    currentSpeaker: null,
+    interimTranscript: '',
+    error: null,
+    start: vi.fn(),
+    stop: vi.fn(),
+    speak: vi.fn(),
+    language: 'zh-CN',
+    setLanguage: vi.fn(),
+    sttReady: true,
+    ttsReady: true,
+  }),
+}));
 
 import Chat from '../../components/Chat';
 
@@ -129,7 +168,8 @@ describe('Chat', () => {
     render(<Chat />);
 
     expect(screen.getByTestId('chat-header')).toBeInTheDocument();
-    expect(screen.getByTestId('message-list')).toBeInTheDocument();
+    // MessageList is only rendered when messages.length > 0
+    // When empty, welcome screen is shown instead
     expect(screen.getByTestId('chat-input')).toBeInTheDocument();
   });
 

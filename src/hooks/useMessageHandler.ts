@@ -81,7 +81,14 @@ export function useMessageHandler() {
   useEffect(() => {
     if (!latestMessage) return;
 
-    const { type, data, error, message, sessionId: newSessionId, claudeReady: ready } = latestMessage;
+    const {
+      type,
+      data,
+      error,
+      message,
+      sessionId: newSessionId,
+      claudeReady: ready,
+    } = latestMessage;
 
     if (type === 'connected') {
       setClaudeReady(true);
@@ -107,7 +114,10 @@ export function useMessageHandler() {
           if (lastMsg?.role === 'assistant' && lastMsg.isStreaming) {
             return [...prev.slice(0, -1), { ...lastMsg, content: streamBufferRef.current }];
           }
-          return [...prev, { role: 'assistant', content: streamBufferRef.current, isStreaming: true }];
+          return [
+            ...prev,
+            { role: 'assistant', content: streamBufferRef.current, isStreaming: true },
+          ];
         });
       }
     }
@@ -132,7 +142,18 @@ export function useMessageHandler() {
 
     if (type === 'error') {
       setIsProcessing(false);
-      setMessages(prev => [...prev, { role: 'error', content: error || 'Unknown error' }]);
+      const errorMsg = error || 'Unknown error';
+      // Detect authentication errors and show a more helpful message
+      const isAuthError =
+        typeof errorMsg === 'string' &&
+        (/401/.test(errorMsg) ||
+          /AuthenticationError/.test(errorMsg) ||
+          /API key format is incorrect/.test(errorMsg) ||
+          /unauthorized/i.test(errorMsg));
+      const displayMsg = isAuthError
+        ? `认证失败：API Key 无效或格式错误。请检查 .env 或环境变量中的 API Key 配置，确认模型访问权限已开通。`
+        : errorMsg;
+      setMessages(prev => [...prev, { role: 'error', content: displayMsg }]);
     }
 
     if (type === 'token-usage') {
@@ -164,7 +185,8 @@ export function useMessageHandler() {
           outputTokens: prev.cumulative.outputTokens + (usage.outputTokens || 0),
           totalCostUsd: prev.cumulative.totalCostUsd + (usage.totalCostUsd || 0),
           cacheReadTokens: prev.cumulative.cacheReadTokens + (usage.cacheReadTokens || 0),
-          cacheCreationTokens: prev.cumulative.cacheCreationTokens + (usage.cacheCreationTokens || 0),
+          cacheCreationTokens:
+            prev.cumulative.cacheCreationTokens + (usage.cacheCreationTokens || 0),
           requests: prev.cumulative.requests + 1,
           apiCallCount: usage.apiCallCount || prev.cumulative.apiCallCount + 1,
         },

@@ -1,7 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
-  darkMode: 'class',
+  darkMode: 'media',
   theme: {
     extend: {
       colors: {
@@ -54,8 +54,16 @@ export default {
       },
       keyframes: {
         'pulse-voice': {
-          '0%, 100%': { transform: 'scale(1)', opacity: '1', boxShadow: '0 0 0 0 rgba(243, 139, 168, 0.4)' },
-          '50%': { transform: 'scale(1.05)', opacity: '0.8', boxShadow: '0 0 0 15px rgba(243, 139, 168, 0)' },
+          '0%, 100%': {
+            transform: 'scale(1)',
+            opacity: '1',
+            boxShadow: '0 0 0 0 rgba(243, 139, 168, 0.4)',
+          },
+          '50%': {
+            transform: 'scale(1.05)',
+            opacity: '0.8',
+            boxShadow: '0 0 0 15px rgba(243, 139, 168, 0)',
+          },
         },
         'fade-in': {
           '0%': { opacity: '0' },

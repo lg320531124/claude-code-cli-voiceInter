@@ -1,12 +1,22 @@
 // src/types/message.ts
 // Message-related types for chat and conversations
 
+export interface Attachment {
+  id: number;
+  name: string;
+  type: string;
+  size: number;
+  content: string;
+  isImage: boolean;
+}
+
 export interface Message {
   id?: string;
   role: 'user' | 'assistant' | 'system' | 'error';
   content: string;
   timestamp?: number;
   isStreaming?: boolean;
+  attachments?: Attachment[];
 }
 
 export interface Conversation {

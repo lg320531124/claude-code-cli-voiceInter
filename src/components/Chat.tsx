@@ -1,5 +1,5 @@
 /**
- * Chat - Main chat component (Modern UI Design)
+ * Chat - Main chat component (Inspired by chatbot-ui design)
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
@@ -15,6 +15,7 @@ import ChatInput from './ChatInput';
 import ChatModals from './ChatModals';
 import VoicePanel from './VoicePanel';
 import logger from '../utils/logger';
+import type { Attachment } from '../types/message';
 
 logger.setContext('Chat');
 
@@ -46,12 +47,42 @@ function Chat() {
     handleConversationDelete,
     startNewConversation,
     saveMessagesToConversation,
+    loadMessagesFromConversation,
   } = useConversationManager();
+
+  // Create new conversation with clear messages
+  const handleNewConversation = useCallback(() => {
+    startNewConversation(clearMessages);
+  }, [startNewConversation, clearMessages]);
+
+  // Load messages when switching conversations
+  useEffect(() => {
+    if (activeConversationId) {
+      const loadedMessages = loadMessagesFromConversation(activeConversationId);
+      // New conversation (empty messages) - clear the display
+      if (loadedMessages.length === 0 && messages.length > 0) {
+        setMessages([]);
+        logger.debug('New conversation - cleared messages');
+      }
+      // Existing conversation - load history
+      else if (
+        loadedMessages.length > 0 &&
+        (loadedMessages.length !== messages.length ||
+          loadedMessages[0].content !== messages[0]?.content)
+      ) {
+        setMessages(loadedMessages);
+        logger.debug('Loaded messages from conversation:', {
+          id: activeConversationId,
+          count: loadedMessages.length,
+        });
+      }
+    }
+  }, [activeConversationId]);
 
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
-  const [attachments, setAttachments] = useState<any[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [conversationMode, setConversationMode] = useState(false);
 
@@ -65,6 +96,7 @@ function Chat() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
 
   const voiceStopSpeakingRef = useRef<(() => void) | null>(null);
+  const voiceStoppedManuallyRef = useRef(false); // Flag to prevent auto-send after manual stop
 
   const sendToClaudeInternal = useCallback(
     (text: string) => {
@@ -73,27 +105,42 @@ function Chat() {
       let fullContent = text.trim();
       if (attachments.length > 0) {
         const attachmentInfo = attachments
-          .map(a => a.isImage ? `[图片: ${a.name}]` : `\n---\n文件: ${a.name}\n${a.content.slice(0, 500)}\n---`)
+          .map(a =>
+            a.isImage
+              ? `[图片: ${a.name}]`
+              : `\n---\n文件: ${a.name}\n${a.content.slice(0, 500)}\n---`
+          )
           .join('\n');
         fullContent = fullContent + '\n' + attachmentInfo;
       }
 
       setIsSending(true);
-      setMessages(prev => [...prev, {
-        role: 'user',
-        content: fullContent,
-        isSending: true,
-        attachments: attachments.length > 0 ? attachments.map(a => ({
-          name: a.name, type: a.type, isImage: a.isImage, preview: a.isImage ? a.content : null,
-        })) : undefined,
-      }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'user',
+          content: fullContent,
+          isSending: true,
+          attachments:
+            attachments.length > 0
+              ? attachments.map(a => ({
+                  name: a.name,
+                  type: a.type,
+                  isImage: a.isImage,
+                  preview: a.isImage ? a.content : null,
+                }))
+              : undefined,
+        },
+      ]);
       setInputText('');
       setAttachments([]);
       setIsProcessing(true);
 
       setTimeout(() => {
         setIsSending(false);
-        setMessages(prev => prev.map(m => (m.isSending && m.content === fullContent ? { ...m, isSending: false } : m)));
+        setMessages(prev =>
+          prev.map(m => (m.isSending && m.content === fullContent ? { ...m, isSending: false } : m))
+        );
       }, 300);
 
       voiceStopSpeakingRef.current?.();
@@ -103,37 +150,85 @@ function Chat() {
     [isConnected, isProcessing, sendMessage, attachments, setMessages]
   );
 
-  useEffect(() => { saveMessagesToConversation(messages); }, [messages, saveMessagesToConversation]);
+  // Save messages to conversation whenever they change
+  useEffect(() => {
+    saveMessagesToConversation(messages);
+  }, [messages, activeConversationId, saveMessagesToConversation]);
 
   const voice = useVoiceInteraction({
     language: 'zh-CN',
-    onSpeechResult: useCallback((text: string) => { if (text.trim()) sendToClaudeInternal(text); }, [sendToClaudeInternal]),
+    onSpeechResult: useCallback(
+      (text: string) => {
+        // Check if user manually stopped - don't auto-send
+        if (voiceStoppedManuallyRef.current) {
+          voiceStoppedManuallyRef.current = false; // Reset flag
+          logger.debug('Voice stopped manually, skipping auto-send');
+          return;
+        }
+        if (text.trim()) sendToClaudeInternal(text);
+      },
+      [sendToClaudeInternal]
+    ),
     autoSpeakResponse: true,
   });
 
-  useEffect(() => { voiceStopSpeakingRef.current = voice.stopSpeaking || null; }, [voice.stopSpeaking]);
+  useEffect(() => {
+    voiceStopSpeakingRef.current = voice.stopSpeaking || null;
+  }, [voice.stopSpeaking]);
 
-  const historyTTS = useHybridTTS({ voice: 'af_sky', speed: 1.0, language: 'zh-CN', preferKokoro: true });
+  const historyTTS = useHybridTTS({
+    voice: 'af_sky',
+    speed: 1.0,
+    language: 'zh-CN',
+    preferKokoro: true,
+  });
 
   const handleVoiceClick = useCallback(() => {
     if (!voice.isSupported) {
-      setMessages(prev => [...prev, { role: 'error', content: '⚠️ 浏览器不支持语音识别' }]);
+      setMessages(prev => [...prev, { role: 'error', content: '浏览器不支持语音' }]);
       return;
     }
     if (!voice.isInitialized) {
-      setMessages(prev => [...prev, { role: 'error', content: '⚠️ 语音功能尚未初始化' }]);
+      setMessages(prev => [...prev, { role: 'error', content: '语音未初始化' }]);
       return;
     }
-    if (voice.isSpeaking && voice.stopSpeaking) voice.stopSpeaking();
-    else if (voice.toggleListening) voice.toggleListening();
+    // If speaking, stop speaking (don't set manual stop flag for this case)
+    if (voice.isSpeaking && voice.stopSpeaking) {
+      voice.stopSpeaking();
+      return;
+    }
+    // If listening and user clicks, they want to stop - set flag to prevent auto-send
+    if (voice.isListening) {
+      voiceStoppedManuallyRef.current = true;
+      voice.stopListening?.();
+      logger.debug('User clicked to stop listening manually');
+      return;
+    }
+    // Starting new recording - reset the flag
+    voiceStoppedManuallyRef.current = false;
+    voice.startListening?.();
+    logger.debug('User started new voice recording');
   }, [voice, setMessages]);
 
   const handleConversationModeClick = useCallback(() => {
-    setConversationMode(!conversationMode);
-    if (!conversationMode) { voice.stopListening?.(); voice.stopSpeaking?.(); }
+    if (!conversationMode) {
+      // Starting conversation mode - reset the flag
+      voiceStoppedManuallyRef.current = false;
+      setConversationMode(true);
+      logger.debug('Starting conversation mode');
+    } else {
+      // Ending conversation mode - set flag to prevent auto-send
+      voiceStoppedManuallyRef.current = true;
+      setConversationMode(false);
+      voice.stopListening?.();
+      voice.stopSpeaking?.();
+      logger.debug('User manually ended conversation mode');
+    }
   }, [conversationMode, voice]);
 
   const handleStopAll = useCallback(() => {
+    // Set flag to prevent auto-send after manual stop
+    voiceStoppedManuallyRef.current = true;
     setIsProcessing(false);
     if (streamBufferRef.current) streamBufferRef.current = '';
     voice.stopSpeaking?.();
@@ -141,58 +236,109 @@ function Chat() {
     if (conversationMode) setConversationMode(false);
     historyTTS.stop();
     stopResponse();
+    logger.debug('User manually stopped all voice activity');
   }, [voice, conversationMode, historyTTS, streamBufferRef, setIsProcessing, stopResponse]);
 
-  const handleCommandAction = useCallback((action: string) => {
-    switch (action) {
-      case 'new-session': sendMessage({ type: 'new-session' }); startNewConversation(); break;
-      case 'clear-messages': clearMessages(); break;
-      case 'toggle-conversation-list': setShowConversationList(prev => !prev); break;
-      case 'open-skill-manager': setShowSkillManager(true); break;
-      case 'open-token-stats': setShowTokenStats(true); break;
-      case 'toggle-voice-input': if (!conversationMode) handleVoiceClick(); break;
-      case 'toggle-conversation-mode': handleConversationModeClick(); break;
-      case 'stop-voice-all': handleStopAll(); break;
-      case 'escape': setShowSkillManager(false); setShowTokenStats(false); setShowCommandSidebar(false); setShowShortcutsHelp(false); break;
-    }
-  }, [sendMessage, startNewConversation, clearMessages, handleVoiceClick, handleConversationModeClick, handleStopAll, conversationMode]);
+  const handleCommandAction = useCallback(
+    (action: string) => {
+      switch (action) {
+        case 'new-session':
+          sendMessage({ type: 'new-session' });
+          startNewConversation(clearMessages);
+          break;
+        case 'clear-messages':
+          clearMessages();
+          break;
+        case 'toggle-conversation-list':
+          setShowConversationList(prev => !prev);
+          break;
+        case 'open-skill-manager':
+          setShowSkillManager(true);
+          break;
+        case 'open-token-stats':
+          setShowTokenStats(true);
+          break;
+        case 'toggle-voice-input':
+          if (!conversationMode) handleVoiceClick();
+          break;
+        case 'toggle-conversation-mode':
+          handleConversationModeClick();
+          break;
+        case 'stop-voice-all':
+          handleStopAll();
+          break;
+        case 'escape':
+          setShowSkillManager(false);
+          setShowTokenStats(false);
+          setShowCommandSidebar(false);
+          setShowShortcutsHelp(false);
+          break;
+      }
+    },
+    [
+      sendMessage,
+      startNewConversation,
+      clearMessages,
+      handleVoiceClick,
+      handleConversationModeClick,
+      handleStopAll,
+      conversationMode,
+    ]
+  );
 
   useKeyboardShortcuts({
-    inputText, inputRef, isTyping: false, onAction: handleCommandAction,
-    dependencies: { conversationMode, isListening: voice.isListening, isSpeaking: voice.isSpeaking },
+    inputText,
+    inputRef,
+    isTyping: false,
+    onAction: handleCommandAction,
+    dependencies: {
+      conversationMode,
+      isListening: voice.isListening,
+      isSpeaking: voice.isSpeaking,
+    },
   });
 
-  const startNewSession = useCallback(() => { sendMessage({ type: 'new-session' }); startNewConversation(); }, [sendMessage, startNewConversation]);
+  const startNewSession = useCallback(() => {
+    sendMessage({ type: 'new-session' });
+    startNewConversation(clearMessages);
+  }, [sendMessage, startNewConversation, clearMessages]);
 
-  const handleSubmit = useCallback((e?: React.FormEvent) => {
-    e?.preventDefault();
-    const text = inputText.trim();
-    if (text.startsWith('/')) { setShowCommandPalette(false); setInputText(''); setMessages(prev => [...prev, { role: 'user', content: text }]); return; }
-    sendToClaudeInternal(inputText);
-  }, [inputText, sendToClaudeInternal, setMessages]);
+  const handleSubmit = useCallback(
+    (e?: React.FormEvent) => {
+      e?.preventDefault();
+      const text = inputText.trim();
+      if (text.startsWith('/')) {
+        setShowCommandPalette(false);
+        setInputText('');
+        setMessages(prev => [...prev, { role: 'user', content: text }]);
+        return;
+      }
+      sendToClaudeInternal(inputText);
+    },
+    [inputText, sendToClaudeInternal, setMessages]
+  );
 
-  const handleCommandSelect = useCallback((command: any) => {
-    setShowCommandPalette(false); setInputText(''); handleCommandAction(command.action);
-  }, [handleCommandAction]);
+  const handleCommandSelect = useCallback(
+    (command: any) => {
+      setShowCommandPalette(false);
+      setInputText('');
+      handleCommandAction(command.action);
+    },
+    [handleCommandAction]
+  );
 
   const handleCompositionStart = useCallback(() => setIsComposing(true), []);
   const handleCompositionEnd = useCallback(() => setIsComposing(false), []);
 
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 flex overflow-hidden">
-      {/* Ambient background effects */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-radial from-violet-500/10 via-transparent to-transparent rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-radial from-cyan-500/10 via-transparent to-transparent rounded-full blur-3xl" />
-      </div>
-
+    <div className="h-screen bg-background flex overflow-hidden">
       {/* Conversation List */}
       {showConversationList && (
         <ConversationList
           activeConversationId={activeConversationId}
           conversations={conversations}
           onConversationSelect={handleConversationSelect}
-          onConversationCreate={startNewConversation}
+          onConversationCreate={handleNewConversation}
           onConversationDelete={handleConversationDelete}
           collapsed={false}
         />
@@ -225,62 +371,65 @@ function Chat() {
         {/* Messages area */}
         <main className="flex-1 overflow-y-auto px-4 py-6">
           {messages.length === 0 ? (
-            /* Modern welcome screen */
+            /* Clean welcome screen inspired by ChatGPT */
             <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto px-8">
-              <div className="relative mb-8">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 flex items-center justify-center shadow-2xl shadow-violet-500/30">
-                  <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                </div>
-                <div className="absolute -bottom-2 -right-2 w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-lg">
-                  <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              <div className="mb-8">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <svg
+                    className="w-6 h-6 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                    />
                   </svg>
                 </div>
               </div>
 
-              <h2 className="text-2xl font-semibold text-white/90 mb-3">How can I help you today?</h2>
-              <p className="text-white/50 text-center mb-10 max-w-md">
-                Chat with Claude using voice or text. Start a conversation or try one of these suggestions.
+              <h2 className="text-xl font-semibold text-foreground mb-2">
+                How can I help you today?
+              </h2>
+              <p className="text-muted-foreground text-center mb-8 max-w-md text-sm">
+                Start a conversation or try one of these suggestions.
               </p>
 
               {/* Quick action cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg">
                 <button
                   onClick={() => sendToClaudeInternal('What can you do?')}
-                  className="group p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-violet-500/30 transition-all duration-300 text-left"
+                  className="p-4 rounded-lg border bg-card hover:bg-accent transition-colors text-left group"
                 >
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                    <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.95-.083-1.876-.548-2.473M12 21a9 9 0 02-6.364-2.636l-.707-.707" />
-                    </svg>
+                  <div className="text-sm font-medium text-foreground group-hover:text-primary">
+                    What can you do?
                   </div>
-                  <span className="text-sm text-white/80 group-hover:text-white transition-colors">What can you do?</span>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Learn about my capabilities
+                  </div>
                 </button>
 
                 <button
                   onClick={() => sendToClaudeInternal('Explain this code')}
-                  className="group p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-violet-500/30 transition-all duration-300 text-left"
+                  className="p-4 rounded-lg border bg-card hover:bg-accent transition-colors text-left group"
                 >
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                    <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                    </svg>
+                  <div className="text-sm font-medium text-foreground group-hover:text-primary">
+                    Explain code
                   </div>
-                  <span className="text-sm text-white/80 group-hover:text-white transition-colors">Explain code</span>
+                  <div className="text-xs text-muted-foreground mt-1">Get code explanations</div>
                 </button>
 
                 <button
                   onClick={() => sendToClaudeInternal('Help me debug')}
-                  className="group p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-violet-500/30 transition-all duration-300 text-left"
+                  className="p-4 rounded-lg border bg-card hover:bg-accent transition-colors text-left group"
                 >
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-500/20 to-red-500/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                    <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                  <div className="text-sm font-medium text-foreground group-hover:text-primary">
+                    Debug issue
                   </div>
-                  <span className="text-sm text-white/80 group-hover:text-white transition-colors">Debug issue</span>
+                  <div className="text-xs text-muted-foreground mt-1">Troubleshoot problems</div>
                 </button>
               </div>
             </div>
@@ -301,7 +450,7 @@ function Chat() {
           {/* Voice Panel */}
           <div className="mt-4 px-4">
             <VoicePanel
-              onUserSpeech={(text) => sendToClaudeInternal(text)}
+              onUserSpeech={text => sendToClaudeInternal(text)}
               enabled={conversationMode}
               showWaveform={true}
               autoContinue={true}

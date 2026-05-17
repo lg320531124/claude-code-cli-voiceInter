@@ -5,6 +5,8 @@
 // - Command sanitization
 // - Rate limiting helpers
 
+import logger from '../src/utils/logger.js';
+
 /**
  * Sanitize command input to prevent injection
  * - Remove dangerous characters
@@ -26,16 +28,16 @@ export function sanitizeCommand(command) {
 
   // Check for shell injection patterns
   const dangerousPatterns = [
-    /\$\(/,         // Command substitution
-    /`[^`]+`/,      // Command substitution (backticks)
-    /\|.*\|/,       // Pipes
-    /;.*;/,         // Multiple commands
+    /\$\(/, // Command substitution
+    /`[^`]+`/, // Command substitution (backticks)
+    /\|.*\|/, // Pipes
+    /;.*;/, // Multiple commands
     /\n.*\n.*\n.*\n/, // More than 3 newlines (unusual)
   ];
 
   for (const pattern of dangerousPatterns) {
     if (pattern.test(sanitized)) {
-      console.warn('[Security] Potentially dangerous command pattern detected');
+      logger.warn('Potentially dangerous command pattern detected');
       return null;
     }
   }
@@ -49,11 +51,26 @@ export function sanitizeCommand(command) {
  * - Validate arguments
  */
 const ALLOWED_CLI_COMMANDS = [
-  '--model', '--resume', '--continue', '--fork-session',
-  '--disable-slash-commands', '--bare', '--verbose', '--debug',
-  '--tmux', '--effort', '--fast', '--help', '--version',
-  '--doctor', '--update', 'agents', 'auth', 'setup-token',
-  'plugin', 'mcp'
+  '--model',
+  '--resume',
+  '--continue',
+  '--fork-session',
+  '--disable-slash-commands',
+  '--bare',
+  '--verbose',
+  '--debug',
+  '--tmux',
+  '--effort',
+  '--fast',
+  '--help',
+  '--version',
+  '--doctor',
+  '--update',
+  'agents',
+  'auth',
+  'setup-token',
+  'plugin',
+  'mcp',
 ];
 
 export function validateCliCommand(command, args = []) {
@@ -62,12 +79,12 @@ export function validateCliCommand(command, args = []) {
   }
 
   // Check if command is allowed
-  const isAllowed = ALLOWED_CLI_COMMANDS.some(allowed => 
-    command === allowed || command.startsWith(allowed.split(' ')[0])
+  const isAllowed = ALLOWED_CLI_COMMANDS.some(
+    allowed => command === allowed || command.startsWith(allowed.split(' ')[0])
   );
 
   if (!isAllowed) {
-    console.warn('[Security] Blocked unauthorized CLI command:', command);
+    logger.warn('Blocked unauthorized CLI command:', { command });
     return { valid: false, error: 'Command not allowed' };
   }
 
@@ -82,13 +99,13 @@ export function validateCliCommand(command, args = []) {
 }
 
 /**
- * Simple rate limiting (in-memory, per connection)
+ * Rate limiting (in-memory, per client ID with IP tracking)
  */
 const rateLimitMap = new Map();
 
 export function checkRateLimit(clientId, maxRequests = 100, windowMs = 60000) {
   const now = Date.now();
-  const clientData = rateLimitMap.get(clientId) || { count: 0, windowStart: now };
+  const clientData = rateLimitMap.get(clientId) || { count: 0, windowStart: now, ip: clientId };
 
   // Reset window if expired
   if (now - clientData.windowStart > windowMs) {
@@ -98,6 +115,7 @@ export function checkRateLimit(clientId, maxRequests = 100, windowMs = 60000) {
 
   // Check limit
   if (clientData.count >= maxRequests) {
+    logger.warn('Rate limit exceeded', { clientId, count: clientData.count });
     return { allowed: false, remaining: 0 };
   }
 
@@ -110,13 +128,29 @@ export function checkRateLimit(clientId, maxRequests = 100, windowMs = 60000) {
 
 /**
  * Clean up rate limit entries (call periodically)
+ * Auto-cleanup runs every 5 minutes
  */
+const CLEANUP_INTERVAL = 5 * 60 * 1000;
+let cleanupTimer = null;
+
 export function cleanupRateLimits(maxAge = 300000) {
   const now = Date.now();
   for (const [clientId, data] of rateLimitMap.entries()) {
     if (now - data.windowStart > maxAge) {
       rateLimitMap.delete(clientId);
     }
+  }
+}
+
+export function startRateLimitCleanup() {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => cleanupRateLimits(), CLEANUP_INTERVAL);
+}
+
+export function stopRateLimitCleanup() {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
   }
 }
 

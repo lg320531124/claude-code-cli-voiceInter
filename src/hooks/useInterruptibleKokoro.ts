@@ -52,17 +52,26 @@ export function useInterruptibleKokoro(options: Options = {}): Result {
   // Stop speaking
   const stop = useCallback(() => {
     if (audioSourceRef.current) {
-      audioSourceRef.current.stop();
+      try {
+        audioSourceRef.current.stop();
+      } catch {
+        // Already stopped
+      }
       audioSourceRef.current = null;
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close();
+      audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
     }
     if (interruptionCheckRef.current) {
       clearInterval(interruptionCheckRef.current);
       interruptionCheckRef.current = null;
     }
+    audioAnalyserRef.current = null;
     setIsSpeaking(false);
   }, []);
 
@@ -102,7 +111,14 @@ export function useInterruptibleKokoro(options: Options = {}): Result {
           }
         }, 100);
       })
-      .catch(err => logger.warn('Could not start interruption detection:', { error: err }));
+      .catch(err => {
+        // Clean up any partially-created resources on error
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+          mediaStreamRef.current = null;
+        }
+        logger.warn('Could not start interruption detection:', { error: err });
+      });
   }, [canInterrupt, isSpeaking, interruptionVolumeThreshold, stop, onInterrupt]);
 
   // Speak text
@@ -155,12 +171,7 @@ export function useInterruptibleKokoro(options: Options = {}): Result {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      stop();
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
+    return () => stop();
   }, [stop]);
 
   return {

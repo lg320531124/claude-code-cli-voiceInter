@@ -74,6 +74,7 @@ export default function ChatHeader({
           onClick={onToggleConversationList}
           className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-white/60 hover:text-white"
           title={showConversationList ? '隐藏对话列表' : '显示对话列表'}
+          aria-label={showConversationList ? '隐藏对话列表' : '显示对话列表'}
         >
           <PanelLeft className="w-4 h-4" />
         </button>
@@ -86,8 +87,12 @@ export default function ChatHeader({
         <div>
           <h1 className="text-base font-semibold text-white/90">Claude Voice</h1>
           <p className="text-xs text-white/40 flex items-center gap-1.5">
-            <span className={`inline-flex items-center gap-1 ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}>
-              <span className={`w-1 h-1 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+            <span
+              className={`inline-flex items-center gap-1 ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}
+            >
+              <span
+                className={`w-1 h-1 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'}`}
+              />
               {isConnected ? '在线' : '离线'}
             </span>
             {claudeReady && <span className="text-violet-400/60">• 就绪</span>}
@@ -118,6 +123,7 @@ export default function ChatHeader({
             onClick={onStopResponse}
             className="p-2 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 border border-red-400/40 hover:from-red-600 hover:to-orange-600 transition-all shadow-lg shadow-red-500/20"
             title="停止"
+            aria-label="停止"
           >
             <StopCircle className="w-4 h-4 text-white" />
           </button>
@@ -125,20 +131,37 @@ export default function ChatHeader({
 
         {/* Action buttons */}
         <div className="flex items-center gap-1">
-          <button onClick={onNewSession} disabled={!isConnected} title="新会话"
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all disabled:opacity-40">
+          <button
+            onClick={onNewSession}
+            disabled={!isConnected}
+            title="新会话"
+            aria-label="新会话"
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all disabled:opacity-40"
+          >
             <RefreshCw className="w-4 h-4 text-white/60" />
           </button>
-          <button onClick={onOpenTokenStats} title="Token"
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all">
+          <button
+            onClick={onOpenTokenStats}
+            title="Token"
+            aria-label="Token统计"
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all"
+          >
             <Activity className="w-4 h-4 text-white/60" />
           </button>
-          <button onClick={onToggleCommandSidebar} title="命令"
-            className={`p-2 rounded-xl transition-all ${commandSidebarOpen ? 'bg-violet-500/20 text-violet-400' : 'bg-white/5 hover:bg-white/10 text-white/60'}`}>
+          <button
+            onClick={onToggleCommandSidebar}
+            title="命令"
+            aria-label="命令面板"
+            className={`p-2 rounded-xl transition-all ${commandSidebarOpen ? 'bg-violet-500/20 text-violet-400' : 'bg-white/5 hover:bg-white/10 text-white/60'}`}
+          >
             <Terminal className="w-4 h-4" />
           </button>
-          <button onClick={onOpenShortcutsHelp} title="快捷键"
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all">
+          <button
+            onClick={onOpenShortcutsHelp}
+            title="快捷键"
+            aria-label="快捷键帮助"
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all"
+          >
             <Keyboard className="w-4 h-4 text-white/60" />
           </button>
         </div>

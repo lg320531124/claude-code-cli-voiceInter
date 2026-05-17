@@ -64,23 +64,12 @@ function ConversationList({
     }
   }, [externalConversations, activeConversationId, onConversationSelect]);
 
-  // 创建新对话 - 添加加载状态
+  // 创建新对话 - 只调用回调，不本地创建（当使用外部conversations时）
   const handleCreate = () => {
     setIsCreating(true);
     setTimeout(() => {
-      const newConv = createConversation();
-
-      if (!externalConversations) {
-        // 本地模式：更新本地状态
-        const updated = [...conversations, newConv];
-        setLocalConversations(updated);
-        saveConversations(updated);
-        setActiveConversationId(newConv.id);
-      }
-
-      // 调用回调（无论是本地还是外部模式）
-      onConversationCreate?.(newConv);
-      onConversationSelect?.(newConv.id);
+      // 调用回调让父组件处理创建
+      onConversationCreate?.();
       setIsCreating(false);
     }, 200);
   };
